@@ -357,7 +357,7 @@ routes.ai = async () => {
   const s = AI.settings();
   const ready = AI.ready();
   $app.innerHTML = `<div class="page chatpage">
-    <div class="top"><div><h1>المساعد ✨</h1><div class="sub">${s.provider === "claude" ? "Claude" : "Gemini"} · ${esc(s.provider === "claude" ? s.claudeModel : s.geminiModel)}</div></div>
+    <div class="top"><div><h1>المساعد ✨</h1><div class="sub" id="aimodel">${s.provider === "claude" ? "Claude · " + esc(s.claudeModel) : s.geminiAuto ? "Gemini · مجاني · بيبدّل الموديل لحاله" : "Gemini · " + esc(s.geminiModel)}</div></div>
       ${chatMsgs.length ? `<button class="back" onclick="newChat()">محادثة جديدة</button>` : ""}</div>
     ${!ready ? `<div class="card"><b>لازم تحط مفتاح الـ AI أول مرة</b><p class="small muted" style="margin:6px 0 10px">المفتاح بيتخزّن على تلفونك بس، وما بيروح لأي مكان غير الشركة نفسها.</p><button class="btn primary" onclick="go('settings')">افتح الإعدادات</button></div>` : ""}
     <div class="chat" id="chat"></div>
@@ -426,6 +426,7 @@ async function sendAI() {
     const recent = chatMsgs.slice(-20).map((m, i, arr) => ({ ...m, images: i >= arr.length - 4 ? m.images : [] }));
     if (recent[0] && recent[0].role === "assistant") recent.shift();
     const full = await AI.chat({ system: aiContext(), messages: recent, signal: aiAbort.signal,
+      onModel: m => { const el = document.getElementById("aimodel"); if (el && AI.settings().geminiAuto) el.textContent = "Gemini · مجاني · " + m; },
       onText: t => { bubble.innerHTML = AI.md(t); if (window.innerHeight + window.scrollY > document.body.scrollHeight - 200) window.scrollTo(0, document.body.scrollHeight); } });
     chatMsgs.push({ role: "assistant", text: full });
   } catch (e) {
@@ -458,7 +459,7 @@ routes.settings = async () => {
     <h2>الذكاء الاصطناعي</h2>
     <div class="card">
       <div class="field"><label>المزوّد</label>
-        <div class="seg" id="prov"><button data-p="claude" class="${s.provider === "claude" ? "on" : ""}">Claude</button><button data-p="gemini" class="${s.provider === "gemini" ? "on" : ""}">Gemini</button></div></div>
+        <div class="seg" id="prov"><button data-p="gemini" class="${s.provider === "gemini" ? "on" : ""}">Gemini (مجاني)</button><button data-p="claude" class="${s.provider === "claude" ? "on" : ""}">Claude (مدفوع)</button></div></div>
       <div id="pclaude" ${s.provider === "claude" ? "" : "hidden"}>
         <div class="field"><label>Claude API key</label><input class="input" id="ck" type="password" dir="ltr" placeholder="sk-ant-…" value="${esc(s.claudeKey)}">
           <div class="hint">من <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> ← API Keys. بدك تشحن رصيد بسيط.</div></div>
@@ -467,7 +468,9 @@ routes.settings = async () => {
       <div id="pgemini" ${s.provider === "gemini" ? "" : "hidden"}>
         <div class="field"><label>Gemini API key</label><input class="input" id="gk" type="password" dir="ltr" placeholder="AIza…" value="${esc(s.geminiKey)}">
           <div class="hint">مجاني من <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a></div></div>
-        <div class="field"><label>الموديل</label><input class="input" id="gm" dir="ltr" value="${esc(s.geminiModel)}"><div class="hint">إذا طلعلك إنه الموديل مش موجود، حط اسم أحدث موديل من AI Studio</div></div>
+        <label class="field" style="display:flex;gap:10px;align-items:flex-start;cursor:pointer"><input type="checkbox" id="gauto" ${s.geminiAuto ? "checked" : ""} style="margin-top:5px;width:18px;height:18px">
+          <span><b>تبديل تلقائي بين الموديلات المجانية</b><span class="hint" style="display:block">بيستخدم أذكى موديل مجاني، ولما يوصل حده بيحوّل للي بعده لحاله.<br><span id="gchain" dir="ltr"></span></span></span></label>
+        <div class="field" id="gmwrap" ${s.geminiAuto ? "hidden" : ""}><label>الموديل</label><input class="input" id="gm" dir="ltr" value="${esc(s.geminiModel)}"></div>
       </div>
       <button class="btn primary block" id="saveai">حفظ</button>
       <p class="small muted" style="margin:10px 0 0">🔒 المفاتيح بتنحفظ على هاد الجهاز بس، والمحادثات بتروح مباشرة للشركة اللي اخترتها.</p>
@@ -478,6 +481,14 @@ routes.settings = async () => {
       <a href="#" onclick="event.preventDefault();pull&&pull();go('home')">تحديث البيانات</a></div>
   </div>`;
   let prov = s.provider;
+  document.getElementById("gauto").onchange = e => { document.getElementById("gmwrap").hidden = e.target.checked; };
+  async function showChain() {
+    const el = document.getElementById("gchain"), k = document.getElementById("gk").value.trim();
+    if (!el || !k) return;
+    const list = await AI.freeChain(k), cool = S.get("ai.cooldown", {});
+    el.innerHTML = list.map(m => cool[m] > Date.now() ? `<s>${esc(m)}</s>` : esc(m)).join(" → ");
+  }
+  showChain();
   document.getElementById("prov").onclick = e => {
     const b = e.target.closest("button"); if (!b) return; prov = b.dataset.p;
     document.querySelectorAll("#prov button").forEach(x => x.classList.toggle("on", x === b));
@@ -485,7 +496,9 @@ routes.settings = async () => {
   };
   document.getElementById("saveai").onclick = () => {
     AI.save({ provider: prov, claudeKey: document.getElementById("ck").value.trim(), claudeModel: document.getElementById("cm").value.trim() || "claude-sonnet-5-5",
-      geminiKey: document.getElementById("gk").value.trim(), geminiModel: document.getElementById("gm").value.trim() || "gemini-3.8-flash" });
+      geminiKey: document.getElementById("gk").value.trim(), geminiModel: document.getElementById("gm").value.trim() || "gemini-3.8-flash",
+      geminiAuto: document.getElementById("gauto").checked });
+    S.del("ai.freechain"); showChain();
     toast("انحفظ ✓");
   };
 };

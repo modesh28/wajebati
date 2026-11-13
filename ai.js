@@ -2,10 +2,36 @@
 const AI = (() => {
   const S = Moodle.store;
   const defaults = {
-    provider: "claude",
+    provider: "gemini",
     claudeKey: "", claudeModel: "claude-sonnet-5-5",
-    geminiKey: "", geminiModel: "gemini-3.8-flash"
+    geminiKey: "", geminiModel: "gemini-3.8-flash", geminiAuto: true
   };
+  let usedModel = null;
+  const FALLBACK_FREE = ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite"];
+  function nextPacificMidnight() {
+    const n = new Date(); const d = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate(), 8, 5));
+    if (d <= n) d.setUTCDate(d.getUTCDate() + 1);
+    return d.getTime();
+  }
+  // Free models: ask Google which Flash / Flash-Lite models this key can use (Pro models aren't free), newest first.
+  async function freeChain(key) {
+    const c = S.get("ai.freechain");
+    if (c && c.key === key.slice(-6) && Date.now() - c.t < 24 * 3600 * 1000 && c.list.length) return c.list;
+    let list = [];
+    try {
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=200&key=${encodeURIComponent(key)}`);
+      const j = await r.json();
+      list = (j.models || [])
+        .filter(m => (m.supportedGenerationMethods || []).includes("generateContent"))
+        .map(m => m.name.replace(/^models\//, ""))
+        .filter(n => /^gemini-\d+(\.\d+)?-flash(-lite)?$/.test(n)); // stable Flash / Flash-Lite only
+      const ver = n => parseFloat(n.match(/gemini-([\d.]+)/)[1]);
+      list.sort((a, b) => (a.includes("lite") - b.includes("lite")) || ver(b) - ver(a));
+    } catch {}
+    if (!list.length) list = FALLBACK_FREE;
+    S.set("ai.freechain", { key: key.slice(-6), t: Date.now(), list });
+    return list;
+  }
   function settings() {
     const s = Object.assign({}, defaults, S.get("ai.settings", {}));
     if (/^gemini-(1|2)\./.test(s.geminiModel)) { s.geminiModel = defaults.geminiModel; S.set("ai.settings", s); } // old retired models
@@ -37,7 +63,7 @@ const AI = (() => {
   }
 
   // messages: [{role:"user"|"assistant", text, images:[{mime,data(base64)}]}]
-  async function chat({ system, messages, onText, signal }) {
+  async function chat({ system, messages, onText, onModel, signal }) {
     const s = settings();
     let full = "";
     if (s.provider === "claude") {
@@ -60,28 +86,55 @@ const AI = (() => {
         if (ev.type === "error") throw new Error(ev.error && ev.error.message);
       });
     } else {
-      const body = {
+      const body = JSON.stringify({
         systemInstruction: { parts: [{ text: system }] },
         contents: messages.map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [
           ...(m.images || []).map(im => ({ inline_data: { mime_type: im.mime, data: im.data } })),
           { text: m.text || " " }
         ] }))
-      };
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(s.geminiModel)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(s.geminiKey)}`;
-      let res = await fetch(url, { method: "POST", signal, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-      if (!res.ok) {
-        const msg = await errText(res);
-        const m = msg.match(/use models\/([\w.-]+)/);
-        if (m && m[1] !== s.geminiModel) {
-          save({ geminiModel: m[1] });
-          res = await fetch(url.replace(encodeURIComponent(s.geminiModel), encodeURIComponent(m[1])), { method: "POST", signal, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-          if (!res.ok) throw new Error(await errText(res));
-        } else throw new Error(msg);
-      }
-      await readSSE(res, ev => {
-        const parts = ev.candidates && ev.candidates[0] && ev.candidates[0].content && ev.candidates[0].content.parts;
-        if (parts) for (const p of parts) if (p.text) { full += p.text; onText(full); }
       });
+      const chain = s.geminiAuto ? await freeChain(s.geminiKey) : [s.geminiModel];
+      const cool = S.get("ai.cooldown", {});
+      const t0 = Date.now();
+      const tryList = chain.filter(m => !(cool[m] > t0));
+      if (!tryList.length) {
+        const soon = Math.min(...chain.map(m => cool[m] || t0));
+        throw new Error(`خلصت كل الموديلات المجانية لهلأ 😅 بترجع تشتغل حوالي الساعة ${new Date(soon).toLocaleTimeString("ar-JO", { hour: "numeric", minute: "2-digit" })}.`);
+      }
+      let lastErr = null;
+      for (const model of tryList) {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(s.geminiKey)}`;
+        const res = await fetch(url, { method: "POST", signal, headers: { "content-type": "application/json" }, body });
+        if (res.ok) {
+          usedModel = model;
+          onModel && onModel(model);
+          await readSSE(res, ev => {
+            const parts = ev.candidates && ev.candidates[0] && ev.candidates[0].content && ev.candidates[0].content.parts;
+            if (parts) for (const p of parts) if (p.text && !p.thought) { full += p.text; onText(full); }
+          });
+          if (full) return full;
+          lastErr = new Error("الموديل ما رد بإشي"); continue;
+        }
+        let j = {}; try { j = await res.json(); } catch {}
+        const msg = (j.error && j.error.message) || res.statusText;
+        if (res.status === 401 || (res.status === 400 && /API key/i.test(msg)) || res.status === 403 && /key/i.test(msg))
+          throw new Error("مفتاح Gemini غلط. راجعه من الإعدادات.");
+        if (res.status === 429) {
+          // daily limit → wait till quota resets (midnight Pacific ≈ 10:00 Amman); per-minute → short wait
+          const daily = /per.?day|PerDay|daily/i.test(JSON.stringify(j));
+          const retry = JSON.stringify(j).match(/"retryDelay":\s*"(\d+)s"/);
+          cool[model] = daily ? nextPacificMidnight() : Date.now() + ((retry ? +retry[1] : 60) + 2) * 1000;
+          S.set("ai.cooldown", cool); lastErr = new Error("وصلت الحد"); continue;
+        }
+        if (res.status === 404 || (res.status === 400 && /model|not supported|not available/i.test(msg))) {
+          cool[model] = Date.now() + 24 * 3600 * 1000; S.set("ai.cooldown", cool);
+          S.del("ai.freechain"); lastErr = new Error(msg); continue;
+        }
+        if (res.status >= 500) { lastErr = new Error("سيرفرات Google مضغوطة"); continue; }
+        throw new Error("خطأ من Gemini: " + msg);
+      }
+      throw new Error(lastErr && lastErr.message === "وصلت الحد"
+        ? "كل الموديلات المجانية وصلت حدها هلأ. استنى دقيقة وجرّب." : "ما زبط: " + (lastErr ? lastErr.message : ""));
     }
     return full;
   }
@@ -122,5 +175,5 @@ const AI = (() => {
     return html.replace(/\u0000(\d+)\u0000/g, (m, i) => blocks[i]).replace(/<p>(<pre>[\s\S]*?<\/pre>)<\/p>/g, "$1");
   }
 
-  return { settings, save, ready, chat, imageFromFile, md };
+  return { settings, save, ready, chat, imageFromFile, md, freeChain, get usedModel() { return usedModel; } };
 })();
