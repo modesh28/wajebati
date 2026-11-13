@@ -526,42 +526,80 @@ function renderMindmap(el, tree) {
 }
 function renderVideo(el, v) {
   const scenes = v.scenes || []; if (!scenes.length) { el.innerHTML = `<div class="err">ما طلع الدرس، جرّب «جديد».</div>`; return; }
-  let i = 0, playing = false, timer = null;
+  const themes = [["#0f766e", "#134e4a"], ["#4338ca", "#1e1b4b"], ["#b45309", "#451a03"], ["#be185d", "#4a044e"], ["#0369a1", "#082f49"], ["#15803d", "#052e16"], ["#7c3aed", "#2e1065"]];
+  let i = 0, playing = false, timer = null, started = false;
   const synth = window.speechSynthesis;
-  const voice = () => { const vs = synth ? synth.getVoices() : []; return vs.find(x => /^ar/i.test(x.lang)) || null; };
-  el.innerHTML = `<div class="video"><div class="vscreen" id="vs"></div>
-    <div class="vbar"><div class="vprog"><div id="vp"></div></div>
-      <div class="vctrl"><button class="iconbtn" id="vprev">⏮</button><button class="iconbtn send big" id="vplay">▶</button><button class="iconbtn" id="vnext">⏭</button></div>
-      <div class="small muted" style="text-align:center" id="vinfo"></div></div></div>`;
-  const vs = el.querySelector("#vs");
-  const stopVoice = () => { try { synth && synth.cancel(); } catch {} clearTimeout(timer); };
-  const showScene = () => {
-    const sc = scenes[i];
-    vs.innerHTML = `<div class="scene"><div class="s-emoji">${esc(sc.emoji || "🎯")}</div><h3 dir="auto">${esc(sc.title || "")}</h3>
-      <ul>${(sc.points || []).map((p, k) => `<li dir="auto" style="animation-delay:${0.4 + k * 0.7}s">${esc(p)}</li>`).join("")}</ul>
-      ${sc.diagram ? `<div class="s-diag"></div>` : ""}<div class="s-say" dir="auto">${esc(sc.say || "")}</div></div>`;
-    if (sc.diagram) drawMermaid(vs.querySelector(".s-diag"), sc.diagram);
-    el.querySelector("#vp").style.width = ((i + 1) / scenes.length * 100) + "%";
-    el.querySelector("#vinfo").textContent = `${esc(v.title || "")} · ${i + 1}/${scenes.length}`;
+  const arVoice = () => (synth ? synth.getVoices() : []).find(x => /^ar/i.test(x.lang)) || null;
+  el.innerHTML = `<div class="vplayer" id="vpl">
+      <div class="vstage" id="vs"></div>
+      <div class="vsub" id="vsub" dir="auto"></div>
+      <button class="vbig" id="vbig">▶</button>
+      <div class="vhud">
+        <div class="vsegs" id="vsegs">${scenes.map((_, k) => `<button data-k="${k}"><i></i></button>`).join("")}</div>
+        <div class="vrow"><button class="vbtn" id="vplay">▶</button><button class="vbtn" id="vprev">⏮</button><button class="vbtn" id="vnext">⏭</button>
+          <span class="vtitle" dir="auto">${esc(v.title || "")}</span><span class="vcount" id="vc"></span><button class="vbtn" id="vfs">⛶</button></div>
+      </div></div>`;
+  const P = el.querySelector("#vpl"), vs = el.querySelector("#vs"), sub = el.querySelector("#vsub"), big = el.querySelector("#vbig"), playBtn = el.querySelector("#vplay");
+  const segs = [...el.querySelectorAll("#vsegs i")];
+  let segT0 = 0, segDur = 1, raf = null;
+  const tick = () => { if (!playing) return; const p = Math.min(1, (Date.now() - segT0) / segDur); segs.forEach((g, k) => g.style.width = k < i ? "100%" : k === i ? (p * 100) + "%" : "0%"); raf = requestAnimationFrame(tick); };
+  const stopAll = () => { try { synth && synth.cancel(); } catch {} clearTimeout(timer); cancelAnimationFrame(raf); };
+  const draw = () => {
+    const sc = scenes[i], th = themes[i % themes.length];
+    P.style.setProperty("--c1", th[0]); P.style.setProperty("--c2", th[1]);
+    vs.innerHTML = `<div class="vscene">
+      <div class="vblob b1"></div><div class="vblob b2"></div>
+      <div class="vemoji">${esc(sc.emoji || "🎯")}</div>
+      <h3 dir="auto">${esc(sc.title || "")}</h3>
+      <div class="vpoints">${(sc.points || []).map((p, k) => `<div class="vpt" dir="auto" data-k="${k}"><span>${k + 1}</span>${esc(p)}</div>`).join("")}</div>
+      ${sc.diagram ? `<div class="vdiag"></div>` : ""}</div>`;
+    if (sc.diagram) drawMermaid(vs.querySelector(".vdiag"), sc.diagram);
+    el.querySelector("#vc").textContent = `${i + 1}/${scenes.length}`;
+    segs.forEach((g, k) => g.style.width = k < i ? "100%" : "0%");
+    sub.textContent = "";
   };
-  const speakThenNext = () => {
-    stopVoice(); if (!playing) return;
-    const sc = scenes[i], text = sc.say || sc.title || "";
-    const next = () => { if (!playing) return; if (i < scenes.length - 1) { i++; showScene(); speakThenNext(); } else { playing = false; el.querySelector("#vplay").textContent = "↺"; } };
-    if (synth && voice()) { const u = new SpeechSynthesisUtterance(text); u.voice = voice(); u.lang = u.voice.lang; u.rate = 1.05; u.onend = () => { timer = setTimeout(next, 500); }; u.onerror = () => { timer = setTimeout(next, Math.max(3500, text.length * 70)); }; synth.speak(u); }
-    else timer = setTimeout(next, Math.max(4000, text.length * 75));
+  // reveal the on-screen points one by one while the narrator talks
+  const reveal = (dur) => { const pts = [...vs.querySelectorAll(".vpt")]; pts.forEach((p, k) => setTimeout(() => p.classList.add("on"), 300 + (dur * 0.8) * (k / Math.max(pts.length, 1)))); };
+  const play = () => {
+    stopAll(); if (!playing) return;
+    const sc = scenes[i], text = (sc.say || sc.title || "").trim();
+    const est = Math.max(4000, text.split(/\s+/).length * 430);
+    segT0 = Date.now(); segDur = est; tick(); reveal(est);
+    const next = () => { if (!playing) return; if (i < scenes.length - 1) { i++; draw(); play(); } else { playing = false; playBtn.textContent = "↺"; big.textContent = "↺"; P.classList.remove("playing"); segs.forEach(g => g.style.width = "100%"); } };
+    // subtitles: show the narration, highlight word by word when the voice reports it
+    const words = text.split(/\s+/);
+    sub.innerHTML = words.map((w, k) => `<span data-w="${k}">${esc(w)}</span>`).join(" ");
+    const v = arVoice();
+    if (synth && v) {
+      const u = new SpeechSynthesisUtterance(text); u.voice = v; u.lang = v.lang; u.rate = 1.05;
+      let charIdx = 0; const starts = []; words.forEach(w => { starts.push(charIdx); charIdx += w.length + 1; });
+      u.onboundary = e => { const k = starts.findIndex((st, j) => e.charIndex >= st && (j === starts.length - 1 || e.charIndex < starts[j + 1])); sub.querySelectorAll("span").forEach((sp, j) => sp.classList.toggle("on", j <= k)); };
+      u.onstart = () => { segT0 = Date.now(); };
+      u.onend = () => { timer = setTimeout(next, 600); }; u.onerror = () => { timer = setTimeout(next, est); };
+      synth.speak(u);
+    } else {
+      words.forEach((_, k) => setTimeout(() => { const sp = sub.querySelector(`[data-w="${k}"]`); sp && sp.classList.add("on"); }, (est * 0.9) * (k / words.length)));
+      timer = setTimeout(next, est);
+    }
   };
-  el.querySelector("#vplay").onclick = () => {
+  const toggle = () => {
     buzz();
-    if (!playing && i === scenes.length - 1 && el.querySelector("#vplay").textContent === "↺") { i = 0; showScene(); }
-    playing = !playing; el.querySelector("#vplay").textContent = playing ? "⏸" : "▶";
-    playing ? speakThenNext() : stopVoice();
+    if (playBtn.textContent === "↺") { i = 0; draw(); }
+    playing = !playing; started = true;
+    playBtn.textContent = playing ? "⏸" : "▶"; big.textContent = playing ? "" : "▶"; P.classList.toggle("playing", playing);
+    playing ? play() : stopAll();
   };
-  el.querySelector("#vnext").onclick = () => { if (i < scenes.length - 1) { i++; showScene(); if (playing) speakThenNext(); } };
-  el.querySelector("#vprev").onclick = () => { if (i > 0) { i--; showScene(); if (playing) speakThenNext(); } };
-  window.addEventListener("hashchange", stopVoice, { once: true });
+  big.onclick = toggle; playBtn.onclick = toggle; vs.onclick = () => started && toggle();
+  el.querySelector("#vnext").onclick = () => { if (i < scenes.length - 1) { i++; draw(); if (playing) play(); } };
+  el.querySelector("#vprev").onclick = () => { if (i > 0) { i--; draw(); if (playing) play(); } };
+  el.querySelector("#vsegs").onclick = e => { const b = e.target.closest("button"); if (!b) return; i = +b.dataset.k; draw(); if (playing) play(); };
+  el.querySelector("#vfs").onclick = () => { try { document.fullscreenElement ? document.exitFullscreen() : (P.requestFullscreen ? P.requestFullscreen() : P.classList.toggle("fake-fs")); } catch { P.classList.toggle("fake-fs"); } };
+  window.addEventListener("hashchange", stopAll, { once: true });
   if (synth) synth.getVoices();
-  showScene();
+  draw();
+  // show the first scene's points so it doesn't look empty before you press play
+  vs.querySelectorAll(".vpt").forEach(p => p.classList.add("on"));
+  setTimeout(() => P.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
 }
 
 function renderPodcast(el, p) {
