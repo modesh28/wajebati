@@ -130,6 +130,23 @@ function loadPyodide2() {
   return pyodideP || (pyodideP = new Promise((res, rej) => { const sc = document.createElement("script"); sc.src = "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js";
     sc.onload = async () => { try { window.__py = await window.loadPyodide({ indexURL: "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/" }); res(window.__py); } catch (e) { rej(e); } }; sc.onerror = rej; document.head.appendChild(sc); }));
 }
+// real SQL (SQLite in the browser) with a ready sample database
+let sqlP = null, sqlDb = null;
+function loadSql() {
+  if (sqlDb) return Promise.resolve(sqlDb);
+  return sqlP || (sqlP = new Promise((res, rej) => {
+    const sc = document.createElement("script"); sc.src = "https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js";
+    sc.onload = async () => { try { const SQL = await window.initSqlJs({ locateFile: f => "https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/" + f }); sqlDb = new SQL.Database(); sqlDb.run(SAMPLE_DB); res(sqlDb); } catch (e) { sqlP = null; rej(e); } };
+    sc.onerror = () => { sqlP = null; rej(new Error("sql")); }; document.head.appendChild(sc);
+  }));
+}
+const SAMPLE_DB = `
+CREATE TABLE students(id INTEGER PRIMARY KEY, name TEXT, major TEXT, year INTEGER, gpa REAL);
+INSERT INTO students VALUES (1,'Ahmad','CS',5,3.4),(2,'Sara','IS',4,3.8),(3,'Omar','CS',3,2.9),(4,'Lina','SE',5,3.1),(5,'Yazan','IS',2,2.5),(6,'Rama','CS',4,3.9);
+CREATE TABLE courses(id INTEGER PRIMARY KEY, title TEXT, credits INTEGER);
+INSERT INTO courses VALUES (101,'Databases',3),(102,'Networks',3),(103,'Software Engineering',3),(104,'Information Retrieval',3);
+CREATE TABLE enrollments(student_id INTEGER, course_id INTEGER, grade INTEGER);
+INSERT INTO enrollments VALUES (1,101,85),(1,103,78),(2,101,95),(2,104,88),(3,102,64),(4,103,90),(5,101,55),(6,104,97),(6,102,91);`;
 const CODE_LANGS = { python: "Python", javascript: "JavaScript", java: "Java", cpp: "C++", c: "C", sql: "SQL" };
 const SAMPLES = {
   python: 'stack = []\nfor x in [1, 2, 3]:\n    stack.append(x)\nprint("pop:", stack.pop())\nprint("stack:", stack)\n',
@@ -137,7 +154,7 @@ const SAMPLES = {
   java: 'public class Main {\n  public static void main(String[] args) {\n    System.out.println("Hello BAU!");\n  }\n}\n',
   cpp: '#include <iostream>\nusing namespace std;\nint main() {\n  cout << "Hello BAU!" << endl;\n  return 0;\n}\n',
   c: '#include <stdio.h>\nint main() {\n  printf("Hello BAU!\\n");\n  return 0;\n}\n',
-  sql: 'SELECT name, grade\nFROM students\nWHERE grade > 80\nORDER BY grade DESC;\n'
+  sql: '-- جداول جاهزة: students, courses, enrollments\nSELECT s.name, c.title, e.grade\nFROM enrollments e\nJOIN students s ON s.id = e.student_id\nJOIN courses c ON c.id = e.course_id\nWHERE e.grade > 80\nORDER BY e.grade DESC;\n'
 };
 routes.code = async () => {
   const st = S.get("code", { lang: "python", src: {} });
@@ -148,6 +165,7 @@ routes.code = async () => {
     <div class="code-btns">
       <button class="btn primary" id="crun">▶ شغّل</button><button class="btn" id="cfix">🐞 صلّحلي</button><button class="btn" id="cexp">💡 اشرحلي</button><button class="btn" id="cch">🎯 تحدّي</button></div>
     <div class="console" id="cout" dir="ltr"><span class="muted">// النتيجة بتطلع هون</span></div>
+    ${st.lang === "sql" ? `<p class="small muted">قاعدة بيانات تجريبية جاهزة: <code>students</code>، <code>courses</code>، <code>enrollments</code>. اكتب أي استعلام وجرّب.</p>` : ""}
     <div id="cai"></div></div>`;
   const ed = document.getElementById("ced"), gut = document.getElementById("gut"), out = document.getElementById("cout");
   const lines = () => { gut.textContent = Array.from({ length: ed.value.split("\n").length }, (_, i) => i + 1).join("\n"); };
@@ -189,8 +207,20 @@ routes.code = async () => {
       fr.srcdoc = `<script>const P=(t,v)=>parent.postMessage({id:${JSON.stringify(id)},t,v},"*");const f=a=>a.map(x=>typeof x==="object"?JSON.stringify(x):String(x)).join(" ");console.log=(...a)=>P("log",f(a));console.error=(...a)=>P("err",f(a));window.onerror=(m,s,l)=>{P("err",m+" (line "+l+")");P("done")};try{${ed.value.replace(/<\/script>/gi, "<\\/script>")}\n}catch(e){P("err",e.name+": "+e.message)}P("done");<\/script>`;
       document.body.appendChild(fr);
       setTimeout(() => { if (document.body.contains(fr)) { print("⏱️ وقّفته (أخذ وقت كثير، يمكن في loop ما بيخلص)", "cerr"); window.removeEventListener("message", onMsg); fr.remove(); } }, 6000);
+    } else if (st.lang === "sql") {
+      print("⏳ بشغّل SQL…", "muted");
+      try {
+        const db = await loadSql(); out.innerHTML = "";
+        const res = db.exec(ed.value);
+        if (!res.length) print("✓ تم (ما في نتائج للعرض)", "muted");
+        for (const r of res) {
+          const tbl = document.createElement("div"); tbl.className = "tbl";
+          tbl.innerHTML = `<table><tr>${r.columns.map(c => `<th>${esc(c)}</th>`).join("")}</tr>${r.values.slice(0, 200).map(v => `<tr>${v.map(x => `<td>${esc(x === null ? "NULL" : x)}</td>`).join("")}</tr>`).join("")}</table>`;
+          out.appendChild(tbl); print(`(${r.values.length} صف)`, "muted");
+        }
+      } catch (e) { out.innerHTML = ""; print(String(e.message || e), "cerr"); }
     } else {
-      // Java / C / C++ / SQL can't run inside the phone browser — the AI traces it like a compiler would
+      // Java / C / C++ can't run inside the phone browser — the AI traces it like a compiler would
       print("⏳ بتتبّع الكود…", "muted");
       const txt = await askAI(`تصرّف كأنك الـ compiler/الـ runtime: شغّل هاد الكود بعقلك. إذا في خطأ compile اكتبه زي ما بيطلع بالزبط مع رقم السطر. إذا اشتغل، اكتب الـ output الحرفي. رجّع بهاد الشكل بالزبط:
 OUTPUT:

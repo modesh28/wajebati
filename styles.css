@@ -420,3 +420,4 @@ body.no-tabs .rbar{bottom:calc(10px + var(--safe-b))}
 .cl.me{align-self:flex-start;background:rgba(255,255,255,.14)}
 .cl.ai{align-self:flex-end;background:rgba(111,207,151,.22)}
 .call .orb{transition:transform .08s linear}
+.console .tbl{background:transparent;margin:6px 0}.console .tbl th{background:#1b3125;color:#6fcf97}.console .tbl td,.console .tbl th{border-color:#2a3a32}

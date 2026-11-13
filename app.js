@@ -238,7 +238,7 @@ routes.home = async () => {
       <div id="brief"></div>
       ${srsDue().length ? `<button class="card planbtn" onclick="go('review')"><span>🧠</span><div><b>مراجعة اليوم: ${srsDue().length} بطاقة</b><div class="small muted">دقايق مراجعة بتثبّت اللي درسته</div></div></button>` : ""}
       ${window.homeExtras ? homeExtras() : ""}
-      ${notifBanner()}
+      ${installBanner()}${notifBanner()}
       <h2>مطلوب منك</h2>
       ${todo.length ? todo.map(itemRow).join("") : data ? `<div class="empty">خلّصت كل إشي 👌</div>` : skel(4)}
       ${up.length > todo.length ? `<details class="donebox"><summary>✓ خلّصتها (${up.length - todo.length})</summary>${up.filter(isDone).map(itemRow).join("")}</details>` : ""}
@@ -277,6 +277,20 @@ async function brief() {
   briefBusy = false;
 }
 
+/* install the app on the phone (Android shows a real install button, iPhone gets a 2-step hint) */
+let installEvt = null;
+window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); installEvt = e; if ((location.hash || "#home") === "#home") route(); });
+window.addEventListener("appinstalled", () => { installEvt = null; S.set("installed", 1); });
+const isStandalone = () => matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+function installBanner() {
+  if (isStandalone() || S.get("installHide")) return "";
+  const ios = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+  if (!installEvt && !ios) return "";
+  return `<div class="card" style="display:flex;align-items:center;gap:10px"><span style="font-size:28px">📲</span>
+    <div style="flex:1"><b>نزّل واجباتي على تلفونك</b><div class="small muted">${ios ? "اكبس زر المشاركة ⬆️ تحت، وبعدين «Add to Home Screen»" : "بيصير زي أي تطبيق، وبتوصلك الإشعارات"}</div></div>
+    ${ios ? "" : `<button class="btn primary" onclick="doInstall()">تنزيل</button>`}<button class="link" onclick="S.set('installHide',1);route()">✕</button></div>`;
+}
+window.doInstall = async () => { if (!installEvt) return; installEvt.prompt(); const r = await installEvt.userChoice.catch(() => ({})); installEvt = null; if (r.outcome === "accepted") buzz(); route(); };
 function notifBanner() {
   if (!("Notification" in window) || Notification.permission !== "default") return "";
   return `<div class="card" style="display:flex;align-items:center;gap:10px">
