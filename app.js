@@ -346,7 +346,8 @@ ${list}
 window.askAI = (id) => {
   const a = data.items.find(i => i.id == id);
   if (!a) return;
-  const intro = (a.intro || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 3000);
+  const tmp = document.createElement("div"); tmp.innerHTML = (a.intro || "").replace(/<\/(p|li|div|h\d)>|<br\s*\/?>/gi, "\n");
+  const intro = tmp.textContent.replace(/[ \t]+/g, " ").replace(/\n\s*\n+/g, "\n").trim().slice(0, 3000);
   aiDraft = `ساعدني أفهم هاد الواجب وأبلّش فيه: "${a.name}" (${a.coursename}).\n${intro ? "الوصف: " + intro : ""}`;
   go("ai");
 };
@@ -484,7 +485,7 @@ routes.settings = async () => {
   };
   document.getElementById("saveai").onclick = () => {
     AI.save({ provider: prov, claudeKey: document.getElementById("ck").value.trim(), claudeModel: document.getElementById("cm").value.trim() || "claude-sonnet-5-5",
-      geminiKey: document.getElementById("gk").value.trim(), geminiModel: document.getElementById("gm").value.trim() || "gemini-2.5-flash" });
+      geminiKey: document.getElementById("gk").value.trim(), geminiModel: document.getElementById("gm").value.trim() || "gemini-3.8-flash" });
     toast("انحفظ ✓");
   };
 };

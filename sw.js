@@ -1,5 +1,5 @@
 /* Service worker: offline app shell + background checks (Android Chrome, installed app) + notification clicks */
-const CACHE = "wajebati-v1";
+const CACHE = "wajebati-v2";
 const SHELL = ["./", "index.html", "styles.css", "moodle.js", "ai.js", "app.js", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png"];
 const SITE = "https://s1.ebalqa.courses";
 

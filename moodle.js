@@ -6,7 +6,9 @@ const Moodle = (() => {
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
     del(k) { try { localStorage.removeItem(k); } catch {} }
   };
-  let session = store.get("mdl.session"); // {token, privatetoken, userid, fullname, picture}
+  let session = store.get("mdl.session");
+  // Moodle sends names with HTML entities (V&amp;V) — turn them into plain text
+  const decode = (t) => { if (!t || !/[&]/.test(t)) return t; const el = document.createElement("textarea"); el.innerHTML = t; return el.value; }; // {token, privatetoken, userid, fullname, picture}
 
   // Moodle expects PHP-style nested params: a[0][b]=c
   function flatten(obj, prefix, out) {
@@ -70,7 +72,7 @@ const Moodle = (() => {
 
   async function courses() {
     const list = await call("core_enrol_get_users_courses", { userid: session.userid });
-    return list.filter(c => c.visible !== 0).map(c => ({ id: c.id, name: c.fullname, short: c.shortname, progress: c.progress }));
+    return list.filter(c => c.visible !== 0).map(c => ({ id: c.id, name: decode(c.fullname), short: c.shortname, progress: c.progress }));
   }
 
   async function assignments(courseIds) {
@@ -78,7 +80,7 @@ const Moodle = (() => {
     const r = await call("mod_assign_get_assignments", { courseids: courseIds });
     const out = [];
     for (const c of r.courses || []) for (const a of c.assignments || []) {
-      out.push({ kind: "assign", id: a.id, cmid: a.cmid, courseid: c.id, coursename: c.fullname, name: a.name,
+      out.push({ kind: "assign", id: a.id, cmid: a.cmid, courseid: c.id, coursename: c.fullname, name: decode(a.name),
         due: a.duedate || 0, cutoff: a.cutoffdate || 0, allowfrom: a.allowsubmissionsfromdate || 0,
         intro: a.intro, attachments: (a.introattachments || []).map(f => ({ name: f.filename, url: f.fileurl })),
         drafts: !!a.submissiondrafts, statement: !!a.requiresubmissionstatement,
@@ -90,7 +92,7 @@ const Moodle = (() => {
   async function quizzes(courseIds) {
     if (!courseIds.length) return [];
     const r = await call("mod_quiz_get_quizzes_by_courses", { courseids: courseIds });
-    return (r.quizzes || []).map(q => ({ kind: "quiz", id: q.id, cmid: q.coursemodule, courseid: q.course, name: q.name,
+    return (r.quizzes || []).map(q => ({ kind: "quiz", id: q.id, cmid: q.coursemodule, courseid: q.course, name: decode(q.name),
       open: q.timeopen || 0, due: q.timeclose || 0, timelimit: q.timelimit || 0, attempts: q.attempts || 0, intro: q.intro }));
   }
 
@@ -149,7 +151,7 @@ const Moodle = (() => {
   async function upcomingEvents() {
     const now = Math.floor(Date.now() / 1000);
     const r = await call("core_calendar_get_action_events_by_timesort", { timesortfrom: now - 86400 * 3, limitnum: 50 });
-    return (r.events || []).map(e => ({ id: e.id, name: e.activityname || e.name, module: e.modulename, instance: e.instance,
+    return (r.events || []).map(e => ({ id: e.id, name: decode(e.activityname || e.name), module: e.modulename, instance: e.instance,
       courseid: e.course && e.course.id, coursename: e.course && e.course.fullname, due: e.timesort, url: e.url,
       actionable: e.action ? e.action.actionable : false, actionName: e.action && e.action.name }));
   }

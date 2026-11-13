@@ -4,9 +4,13 @@ const AI = (() => {
   const defaults = {
     provider: "claude",
     claudeKey: "", claudeModel: "claude-sonnet-5-5",
-    geminiKey: "", geminiModel: "gemini-2.5-flash"
+    geminiKey: "", geminiModel: "gemini-3.8-flash"
   };
-  function settings() { return Object.assign({}, defaults, S.get("ai.settings", {})); }
+  function settings() {
+    const s = Object.assign({}, defaults, S.get("ai.settings", {}));
+    if (/^gemini-(1|2)\./.test(s.geminiModel)) { s.geminiModel = defaults.geminiModel; S.set("ai.settings", s); } // old retired models
+    return s;
+  }
   function save(s) { S.set("ai.settings", Object.assign(settings(), s)); }
   function ready() { const s = settings(); return s.provider === "claude" ? !!s.claudeKey : !!s.geminiKey; }
 
@@ -64,8 +68,16 @@ const AI = (() => {
         ] }))
       };
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(s.geminiModel)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(s.geminiKey)}`;
-      const res = await fetch(url, { method: "POST", signal, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-      if (!res.ok) throw new Error(await errText(res));
+      let res = await fetch(url, { method: "POST", signal, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      if (!res.ok) {
+        const msg = await errText(res);
+        const m = msg.match(/use models\/([\w.-]+)/);
+        if (m && m[1] !== s.geminiModel) {
+          save({ geminiModel: m[1] });
+          res = await fetch(url.replace(encodeURIComponent(s.geminiModel), encodeURIComponent(m[1])), { method: "POST", signal, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+          if (!res.ok) throw new Error(await errText(res));
+        } else throw new Error(msg);
+      }
       await readSSE(res, ev => {
         const parts = ev.candidates && ev.candidates[0] && ev.candidates[0].content && ev.candidates[0].content.parts;
         if (parts) for (const p of parts) if (p.text) { full += p.text; onText(full); }
