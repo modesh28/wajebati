@@ -143,9 +143,19 @@ const Study = (() => {
     return { prefix: `محتوى الملف "${doc.name}":\n<<<\n${doc.data}\n>>>\n\n` };
   }
 
-  const SYS = `إنت مدرّس خصوصي شاطر جداً لطالب جامعي بجامعة البلقاء (نظم حاسوبية). احكي باللهجة الأردنية، والمصطلحات التقنية بالإنجليزي. اعتمد على الملف المرفق بالدرجة الأولى، وإذا ضفت إشي من برّا الملف وضّح إنه إضافة. رتّب كلامك بعناوين ونقاط قصيرة. لما الرسم بيوضّح أكثر من الكلام (خطوات، علاقات، هياكل بيانات) ارسم بـ \`\`\`mermaid (كود صحيح وبسيط).`;
+  const SYS0 = `إنت مدرّس خصوصي شاطر جداً لطالب جامعي بجامعة البلقاء (نظم حاسوبية). اعتمد على الملف المرفق بالدرجة الأولى، وإذا ضفت إشي من برّا الملف وضّح إنه إضافة. رتّب كلامك بعناوين ونقاط قصيرة. لما الرسم بيوضّح أكثر من الكلام (خطوات، علاقات، هياكل بيانات) ارسم بـ \`\`\`mermaid (كود صحيح وبسيط).`;
+  const sys = () => SYS0 + "\n" + AI.langRule();
 
   const PROMPTS = {
+    zero: `درّسني هاد الملف من الصفر كأني أول مرة بسمع فيه، كدرس كامل مرتب:
+## 1. قبل ما نبلّش
+شو لازم أعرف قبل (المتطلبات) بشرح سريع.
+## 2. الدرس خطوة خطوة
+قسّم الملف لخطوات صغيرة بالترتيب. لكل خطوة: الفكرة بكلام بسيط، تشبيه من الحياة، مثال (محلول إذا في حسابات أو كود)، وبالآخر "✋ سؤال تأكد:" مع الجواب تحته.
+## 3. قاموس المصطلحات
+جدول: | المصطلح (English) | المعنى بالعربي | مثال قصير |
+## 4. لخّص الدرس بـ 5 نقاط
+## 5. جاهز للامتحان؟ 3 أسئلة امتحان مع إجاباتها`,
     podcast: `اعمل حلقة بودكاست تعليمية (زي Audio Overview تبع NotebookLM) عن الملف، بين مذيعين: "سارة" (بتشرح وفاهمة المادة) و"أحمد" (طالب ذكي بيسأل أسئلة الطلاب وبيلخّص). باللهجة الأردنية، طبيعي وممتع وفيه حماس وأمثلة من الحياة، والمصطلحات التقنية بالإنجليزي. 16-24 جملة، كل جملة قصيرة (سطر-سطرين). ابدأوا بترحيب، وغطّوا كل أفكار الملف المهمة بالترتيب، واختموا بأهم 3 نقاط للامتحان. رجّع JSON بس:
 {"title":"عنوان الحلقة","lines":[{"who":"سارة","text":"..."},{"who":"أحمد","text":"..."}]}`,
     mindmap: `اعمل خريطة ذهنية (mind map) شجرية لمحتوى الملف، مرتبة بالترتيب اللي لازم ينْدرس فيه: من الأساسيات للمتقدم. كل فرع عنوان قصير (2-5 كلمات) وملاحظة شرح بسطر، و3 مستويات كحد أقصى. رجّع JSON بس:
@@ -170,12 +180,12 @@ const Study = (() => {
   }
 
   async function ask(doc, task, onText, extraMsgs, onStatus) {
-    if (!doc) return AI.chat({ system: SYS, messages: [{ role: "user", text: PROMPTS[task] || task }], onText: onText || (() => {}), onStatus, json: /رجّع JSON/.test(PROMPTS[task] || task || ""), depth: "deep" });
+    if (!doc) return AI.chat({ system: sys(), messages: [{ role: "user", text: PROMPTS[task] || task }], onText: onText || (() => {}), onStatus, json: /رجّع JSON/.test(PROMPTS[task] || task || ""), depth: "deep" });
     const a = attach(doc);
     const first = { role: "user", text: (a.prefix || "") + (PROMPTS[task] || task), images: a.images, docs: a.docs };
     const messages = extraMsgs ? [ { ...first, text: (a.prefix || "") + "هاد الملف اللي بدنا ندرس منه." }, { role: "assistant", text: "تمام، قريته. اسألني." }, ...extraMsgs ] : [first];
     const json = ["cards", "quiz", "mindmap", "video"].includes(task);
-    return AI.chat({ system: SYS, messages, onText: onText || (() => {}), onStatus, json, depth: extraMsgs ? "fast" : "deep" });
+    return AI.chat({ system: sys(), messages, onText: onText || (() => {}), onStatus, json, depth: extraMsgs ? "fast" : "deep" });
   }
 
   function remember(f, doc, raw) { fileCache.set(f.url, doc); KV.set(fkey(f), doc); if (raw) { rawCache.set(f.url, raw); KV.set("raw:" + fkey(f), raw); } }

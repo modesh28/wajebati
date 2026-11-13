@@ -4,7 +4,7 @@ const AI = (() => {
   const defaults = {
     provider: "gemini",
     claudeKey: "", claudeModel: "claude-sonnet-5-5",
-    geminiKey: "", geminiModel: "gemini-3.8-flash", geminiAuto: true
+    geminiKey: "", geminiModel: "gemini-3.8-flash", geminiAuto: true, lang: "both"
   };
   let usedModel = null;
   const FALLBACK_FREE = ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite"];
@@ -36,6 +36,14 @@ const AI = (() => {
     const s = Object.assign({}, defaults, S.get("ai.settings", {}));
     if (/^gemini-(1|2)\./.test(s.geminiModel)) { s.geminiModel = defaults.geminiModel; S.set("ai.settings", s); } // old retired models
     return s;
+  }
+  // how the AI should explain: both languages (default), Arabic, or English — always from zero
+  function langRule() {
+    const l = settings().lang;
+    const zero = "درّس من الصفر: افترض إنه الطالب أول مرة بيسمع بالموضوع، ابدأ بالأساسيات والمتطلبات السابقة بجملة، وبعدين ابني خطوة خطوة، وكل مصطلح جديد عرّفه أول ما يطلع، واستخدم تشبيهات من الحياة وأمثلة محلولة.";
+    if (l === "en") return zero + " Answer fully in clear, simple English (the student is Arabic-speaking: keep sentences short and define every technical term).";
+    if (l === "ar") return zero + " احكي باللهجة الأردنية، والمصطلحات التقنية بالإنجليزي بين قوسين.";
+    return zero + " اشرح بالعربي والإنجليزي مع بعض: كل فكرة اشرحها أول بالعربي (لهجة أردنية بسيطة)، وبعدها سطر **In English:** بنفس الفكرة بإنجليزي بسيط، عشان الطالب يفهم ويتعوّد على لغة الامتحان. وكل مصطلح اكتبه هيك: العربي (English).";
   }
   function save(s) { S.set("ai.settings", Object.assign(settings(), s)); }
   function ready() { const s = settings(); return s.provider === "claude" ? !!s.claudeKey : !!s.geminiKey; }
@@ -216,16 +224,20 @@ const AI = (() => {
       .replace(/`([^`\n]+)`/g, "<code>$1</code>")
       .replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>")
       .replace(/^#{1,4}\s+(.+)$/gm, "<b>$1</b>");
-    const lines = s.split("\n"); let html = "", list = null;
+    const lines = s.split("\n"); let html = "", list = null, table = null;
+    const flushTable = () => { if (!table) return; const rows = table.filter(r => !/^\s*\|?\s*:?-{2,}/.test(r)); html += `<div class="tbl"><table>` + rows.map((r, i) => `<tr>${r.replace(/^\s*\||\|\s*$/g, "").split("|").map(c => i ? `<td dir="auto">${c.trim()}</td>` : `<th dir="auto">${c.trim()}</th>`).join("")}</tr>`).join("") + `</table></div>`; table = null; };
     for (const ln of lines) {
+      if (/^\s*\|.*\|\s*$/.test(ln)) { if (list) { html += `</${list}>`; list = null; } (table = table || []).push(ln); continue; }
+      flushTable();
       const ul = ln.match(/^\s*[-*•]\s+(.*)/), ol = ln.match(/^\s*\d+[.)]\s+(.*)/);
-      if (ul || ol) { const t = ul ? "ul" : "ol"; if (list !== t) { if (list) html += `</${list}>`; html += `<${t}>`; list = t; } html += `<li>${(ul || ol)[1]}</li>`; continue; }
+      if (ul || ol) { const t = ul ? "ul" : "ol"; if (list !== t) { if (list) html += `</${list}>`; html += `<${t}>`; list = t; } html += `<li dir="auto">${(ul || ol)[1]}</li>`; continue; }
       if (list) { html += `</${list}>`; list = null; }
-      if (ln.trim()) html += `<p>${ln}</p>`;
+      if (ln.trim()) html += `<p dir="auto">${ln}</p>`;
     }
     if (list) html += `</${list}>`;
+    flushTable();
     return html.replace(/\u0000(\d+)\u0000/g, (m, i) => blocks[i]).replace(/<p>(<pre>[\s\S]*?<\/pre>)<\/p>/g, "$1");
   }
 
-  return { settings, save, ready, chat, imageFromFile, md, freeChain, get usedModel() { return usedModel; } };
+  return { langRule, settings, save, ready, chat, imageFromFile, md, freeChain, get usedModel() { return usedModel; } };
 })();

@@ -327,7 +327,8 @@ routes.study = async (arg) => {
     <div id="ferr"></div>
     ${!AI.ready() ? `<div class="card"><b>حط مفتاح الـ AI أول</b><div class="btns"><button class="btn primary" onclick="go('settings')">الإعدادات</button></div></div>` : `
     <div class="tools" id="tools">
-      <button class="tool on" data-t="summary"><span>📝</span>ملخّص</button>
+      <button class="tool on" data-t="zero"><span>🎓</span>من الصفر</button>
+      <button class="tool" data-t="summary"><span>📝</span>ملخّص</button>
       <button class="tool" data-t="podcast"><span>🎧</span>بودكاست</button>
       <button class="tool" data-t="video"><span>🎬</span>فيديو</button>
       <button class="tool" data-t="mindmap"><span>🌳</span>خريطة</button>
@@ -351,7 +352,7 @@ routes.study = async (arg) => {
   // ---- NotebookLM: send the file + a ready prompt
   document.getElementById("nlm").onclick = async () => {
     buzz();
-    const sum = await KV.get(RES("summary")) || await KV.get(RES("explain")) || "";
+    const sum = await KV.get(RES("summary")) || await KV.get(RES("zero")) || await KV.get(RES("explain")) || "";
     const prompt = nlmPrompt(f, cname, sum);
     try { await navigator.clipboard.writeText(prompt); } catch {}
     const blob = Study.rawNow(f);
@@ -393,13 +394,13 @@ routes.study = async (arg) => {
 
   // ---- study tools: cached results show instantly; summary starts by itself
   const out = document.getElementById("out");
-  let current = "summary", runId = 0;
+  let current = "zero", runId = 0;
   async function run(t, fresh) {
     current = t; const my = ++runId;
     document.querySelectorAll(".tool").forEach(b => b.classList.toggle("on", b.dataset.t === t));
     const cached = !fresh && await KV.get(RES(t));
     if (my !== runId) return;
-    if (cached) { show(t, cached, true); if (t === "summary") getDoc().then(prefetch).catch(() => {}); return; }
+    if (cached) { show(t, cached, true); if (t === "zero") getDoc().then(prefetch).catch(() => {}); return; }
     out.innerHTML = `<div class="card answer"></div>`;
     const box = out.firstChild, w = waiter(box);
     let d; try { w.status("read"); d = await getDoc(); } catch (e) { w.stop(); out.innerHTML = ""; return; }
@@ -408,7 +409,7 @@ routes.study = async (arg) => {
       if (TEXT_TOOLS.includes(t)) {
         const txt = await Study.ask(d, t, x => { if (my === runId) (t === "sim" ? w.status("build") : w.text(x)); }, null, (kk, m) => w.status(kk, m));
         KV.set(RES(t), txt); if (my === runId) show(t, txt, false);
-        if (t === "summary") prefetch(d);
+        if (t === "zero") prefetch(d);
       } else {
         const txt = await Study.ask(d, t, () => {}, null, (kk, m) => w.status(kk, m)); w.stop();
         const j = Study.parseJSON(txt); KV.set(RES(t), j); if (my === runId) show(t, j, false);
@@ -442,9 +443,9 @@ routes.study = async (arg) => {
         const b = document.querySelector(`.tool[data-t="${t}"]`); if (b) b.classList.add("ready"); } catch { break; }
     }
   }
-  (async () => { for (const t of [...PREFETCH, "summary", "explain", "video", "podcast", "sim", "diagram"]) if (await KV.get(RES(t))) { const b = document.querySelector(`.tool[data-t="${t}"]`); if (b) b.classList.add("ready"); } })();
+  (async () => { for (const t of [...PREFETCH, "zero", "summary", "explain", "video", "podcast", "sim", "diagram"]) if (await KV.get(RES(t))) { const b = document.querySelector(`.tool[data-t="${t}"]`); if (b) b.classList.add("ready"); } })();
   document.getElementById("tools").onclick = e => { const b = e.target.closest(".tool"); if (b) { buzz(); run(b.dataset.t, false); } };
-  run("summary", false);
+  run("zero", false);
 
   // ---- chat about the file
   const msgs = [];
@@ -463,7 +464,7 @@ routes.study = async (arg) => {
   };
 };
 
-const TEXT_TOOLS = ["summary", "explain", "sim", "diagram"];
+const TEXT_TOOLS = ["zero", "summary", "explain", "sim", "diagram"];
 const PREFETCH = ["mindmap", "cards", "quiz"]; // made quietly in the background after the summary
 
 /* ---------- rich renderers: diagrams, simulations, mind maps, video lessons ---------- */
@@ -793,6 +794,7 @@ ${list}
 
 لما يفيد، استخدم رسومات: \`\`\`mermaid للمخططات (خطوات، علاقات، هياكل بيانات، خطط دراسة شجرية)، و\`\`\`html لمحاكاة تفاعلية صغيرة (صفحة كاملة بدون مكتبات خارجية، RTL) لما المفهوم بينفهم بالتجربة (Stack, Queue, sorting…).
 بتقدر: ترتّبله الأولويات وتعمل خطط دراسة، تشرح أي مفهوم بأمثلة، تقرأ الصور اللي ببعتها (أسئلة، سلايدات، كود، أخطاء)، تراجع شغله وتعطيه ملاحظات، وتساعده بالبرمجة.
+${AI.langRule()}
 بالواجبات والكويزات اللي عليها علامات: هدفك إنه يفهم ويقدر يحل بنفسه، فاشرح وورجيه الطريقة وأمثلة مشابهة، بدل ما تعطيه نص جاهز ينسخه ويسلّمه.`;
 }
 
@@ -938,6 +940,9 @@ routes.settings = async () => {
           <span><b>تبديل تلقائي بين الموديلات المجانية</b><span class="hint" style="display:block">بيستخدم أذكى موديل مجاني، ولما يوصل حده بيحوّل للي بعده لحاله.<br><span id="gchain" dir="ltr"></span></span></span></label>
         <div class="field" id="gmwrap" ${s.geminiAuto ? "hidden" : ""}><label>الموديل</label><input class="input" id="gm" dir="ltr" value="${esc(s.geminiModel)}"></div>
       </div>
+      <div class="field" style="margin-top:6px"><label>لغة الشرح</label>
+        <div class="seg" id="lang"><button data-l="both" class="${s.lang === "both" ? "on" : ""}">عربي + English</button><button data-l="ar" class="${s.lang === "ar" ? "on" : ""}">عربي</button><button data-l="en" class="${s.lang === "en" ? "on" : ""}">English</button></div>
+        <div class="hint">بكل الحالات بيشرحلك من الصفر، خطوة خطوة.</div></div>
       <button class="btn primary block" id="saveai">حفظ</button>
       <p class="small muted" style="margin:10px 0 0">🔒 المفاتيح بتنحفظ على هاد الجهاز بس، والمحادثات بتروح مباشرة للشركة اللي اخترتها.</p>
     </div>
@@ -954,6 +959,7 @@ routes.settings = async () => {
       <a href="#" onclick="event.preventDefault();pull&&pull();go('home')">تحديث البيانات</a></div>
   </div>`;
   document.getElementById("saveproxy").onclick = () => { S.set("proxyUrl", document.getElementById("proxy").value.trim()); toast("انحفظ ✓"); };
+  document.getElementById("lang").onclick = e => { const b = e.target.closest("button"); if (!b) return; document.querySelectorAll("#lang button").forEach(x => x.classList.toggle("on", x === b)); AI.save({ lang: b.dataset.l }); buzz(); toast("✓ " + b.textContent); };
   let prov = s.provider;
   document.getElementById("gauto").onchange = e => { document.getElementById("gmwrap").hidden = e.target.checked; };
   async function showChain() {
