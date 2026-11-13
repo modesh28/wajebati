@@ -48,6 +48,12 @@ async function refresh(force = false) {
   try { return await loading; } finally { loading = null; }
 }
 
+// show cached data instantly; refresh quietly and redraw only if something changed
+async function ensureData(redraw) {
+  if (!data) { await refresh(); return; }
+  const h = location.hash, before = JSON.stringify(data.items);
+  refresh().then(d => { if (location.hash === h && JSON.stringify(d.items) !== before) redraw && redraw(); }).catch(() => {});
+}
 function upcoming() {
   if (!data) return [];
   const t = now();
@@ -136,6 +142,7 @@ function viewLogin() {
   };
 }
 
+function skel(n) { return Array.from({ length: n }, () => `<div class="card item skel"><div class="ic"></div><div class="body"><div class="sk w60"></div><div class="sk w90"></div></div></div>`).join(""); }
 function itemRow(i) {
   const d = isDone(i), u = urgency(i.due), s = i.due - now();
   return `<div class="card item" onclick="go('${i.kind}-${i.id}')">
@@ -169,18 +176,43 @@ routes.home = async () => {
         <div class="stat"><b>${week}</b><span>هالأسبوع</span></div>
         <div class="stat"><b>${quizzes}</b><span>كويزات</span></div>
       </div>
+      <div id="brief"></div>
       ${notifBanner()}
       <h2>الجاي</h2>
-      ${up.length ? up.map(itemRow).join("") : data ? `<div class="empty">ما في إشي جاي 👌</div>` : `<div class="spinner"></div>`}
+      ${up.length ? up.map(itemRow).join("") : data ? `<div class="empty">ما في إشي جاي 👌</div>` : skel(4)}
       ${past.length ? `<h2>فات موعدها مؤخراً</h2>${past.map(itemRow).join("")}` : ""}
       <p class="small muted" style="text-align:center;margin-top:18px">${data ? "آخر تحديث: " + fmtShort.format(new Date(data.fetched)) : ""} · <a href="#" onclick="event.preventDefault();pull()">تحديث</a></p>
     </div>`;
   };
-  render();
+  render(); brief();
   window.pull = async () => { toast("بحدّث…"); try { await refresh(true); render(); remindDeadlines(); toast("تم التحديث ✓"); } catch (e) { handleErr(e); } };
   await refresh();
-  if (location.hash.slice(1) === "home" || !location.hash) { render(); remindDeadlines(); }
+  if (location.hash.slice(1) === "home" || !location.hash) { render(); brief(); remindDeadlines(); }
 };
+
+// "خطة اليوم": a short smart plan from the assistant, made once a day in the background
+let briefBusy = false, briefLive = "";
+async function brief() {
+  const el0 = document.getElementById("brief"); if (!el0 || !data || !AI.ready()) return;
+  const todo = upcoming().filter(i => i.due > now() && !isDone(i)).slice(0, 8);
+  if (!todo.length) return;
+  const sig = new Date().toDateString() + "|" + todo.map(i => i.kind + i.id).join(",");
+  const saved = S.get("brief", {});
+  const draw = (txt, live) => { const el = document.getElementById("brief"); if (!el) return;
+    el.innerHTML = `<div class="card brief"><div class="bhead"><span>✨ خطة اليوم</span>${live ? `<span class="dots"><i></i><i></i><i></i></span>` : `<button class="link" id="rebrief">↻</button>`}</div><div class="msg ai">${txt ? AI.md(txt) : `<span class="small muted">بجهّزلك خطة اليوم…</span>`}</div></div>`;
+    const r = document.getElementById("rebrief"); if (r) r.onclick = () => { S.set("brief", {}); brief(); }; };
+  if (saved.sig === sig && saved.text) return draw(saved.text);
+  if (briefBusy) return draw(briefLive, true);
+  briefBusy = true; briefLive = ""; draw("", true);
+  try {
+    const list = todo.map(i => `- ${i.kind === "quiz" ? "كويز" : "واجب"}: ${i.name} (${i.coursename}) — باقي ${left(i.due - now())}`).join("\n");
+    const txt = await AI.chat({ system: "إنت مساعد دراسي ذكي. احكي لهجة أردنية، مختصر جداً ومحفّز.", depth: "fast",
+      messages: [{ role: "user", text: `الوقت هلأ ${fmtDate.format(new Date())}. هاي المطلوب مني:\n${list}\n\nاعطيني خطة اليوم بـ 3 نقاط قصيرة بس (كل نقطة سطر): شو أعمل أول وليش، وجملة تحفيز قصيرة بالآخر. بدون مقدمات.` }],
+      onText: t => { briefLive = t; draw(t, true); } });
+    S.set("brief", { sig, text: txt }); draw(txt);
+  } catch { const el = document.getElementById("brief"); if (el) el.innerHTML = ""; }
+  briefBusy = false;
+}
 
 function notifBanner() {
   if (!("Notification" in window) || Notification.permission !== "default") return "";
@@ -195,8 +227,8 @@ window.askNotif = async () => {
 };
 
 routes.courses = async () => {
-  $app.innerHTML = `<div class="page"><div class="top"><h1>المواد</h1></div><div class="spinner"></div></div>`;
-  await refresh();
+  if (!data) $app.innerHTML = `<div class="page"><div class="top"><h1>المواد</h1></div>${skel(5)}</div>`;
+  await ensureData(() => routes.courses());
   const counts = {};
   upcoming().filter(i => i.due > now() && !isDone(i)).forEach(i => counts[i.courseid] = (counts[i.courseid] || 0) + 1);
   $app.innerHTML = `<div class="page"><div class="top"><h1>المواد</h1><span class="sub">${data.courses.length} مادة</span></div>
@@ -208,7 +240,7 @@ routes.courses = async () => {
 };
 
 routes.course = async (id) => {
-  await refresh();
+  await ensureData(() => routes.course(id));
   const c = data.courses.find(x => x.id == id);
   const items = data.items.filter(i => i.courseid == id).sort((a, b) => (b.due || 0) - (a.due || 0));
   const tab = sessionStorage.getItem("ctab-" + id) || "files";
@@ -224,17 +256,29 @@ routes.course = async (id) => {
     body.innerHTML = items.length ? items.map(i => i.due ? itemRow(i) : `<div class="card item" onclick="go('${i.kind}-${i.id}')"><div class="ic">${i.kind === "quiz" ? "📝" : "📄"}</div><div class="body"><div class="title" dir="auto">${esc(i.name)}</div><div class="due">بدون موعد</div></div></div>`).join("") : `<div class="empty">ما في واجبات بهاي المادة</div>`;
   };
   const showFiles = async () => {
-    body.innerHTML = `<div class="spinner"></div>`;
+    body.innerHTML = skel(4);
     try {
-      const secs = await Study.courseContents(id);
+      const secs = await Study.courseContents(id, () => { if (location.hash === "#course-" + id && (sessionStorage.getItem("ctab-" + id) || "files") === "files") showFiles(); });
       if (!secs.length) { body.innerHTML = `<div class="empty">ما في ملفات بهاي المادة لسا</div>`; return; }
-      body.innerHTML = secs.map(sec => `<h2 dir="auto">${esc(sec.name)}</h2>` + sec.files.map(f => {
+      body.innerHTML = (AI.ready() ? `<button class="card planbtn" id="plan"><span>🌳</span><div><b>خطة دراسة المادة</b><div class="small muted">خريطة شجرية: شو تدرس أول وبأي ترتيب</div></div></button><div id="planout"></div>` : "") + secs.map(sec => `<h2 dir="auto">${esc(sec.name)}</h2>` + sec.files.map(f => {
         const k = Study.kindOf(f);
         const click = f.link ? `window.open('${esc(f.url)}','_blank')` : Study.studyable(k) ? `go('study-${id}.${f.cmid}.${f.idx}')` : `openMoodle('/mod/resource/view.php?id=${f.cmid}')`;
         return `<div class="card item" onclick="${click}"><div class="ic file-${k}">${Study.icon(k)}</div>
           <div class="body"><div class="title" dir="auto">${esc(f.title)}</div><div class="due" dir="auto">${esc(f.filename)} ${Study.sizeLabel(f.size) ? "· " + Study.sizeLabel(f.size) : ""}</div></div>
           ${Study.studyable(k) ? `<span class="pill ok">ادرس ✨</span>` : ""}</div>`;
       }).join("")).join("");
+      const pb = document.getElementById("plan");
+      if (pb) pb.onclick = async () => {
+        buzz(); const po = document.getElementById("planout"); const key = "plan:" + id + ":" + secs.map(x => x.files.length).join(",");
+        const cached = await KV.get(key); if (cached) { renderMindmap(po, cached); po.scrollIntoView({ behavior: "smooth" }); return; }
+        po.innerHTML = `<div class="card answer"></div>`; const w = waiter(po.firstChild); w.status("thinking");
+        const outline = secs.map(sec => `## ${sec.name}\n` + sec.files.map(x => "- " + x.title).join("\n")).join("\n");
+        const work = (data ? data.items.filter(i => i.courseid == id && i.due > now()) : []).map(i => `- ${i.kind === "quiz" ? "كويز" : "واجب"}: ${i.name} — ${fmtShort.format(new Date(i.due * 1000))}`).join("\n");
+        try {
+          const txt = await Study.ask(null, `هاي محتويات مادة "${c ? c.name : ""}" على الإي ليرنينج مرتبة حسب الأسابيع:\n${outline}\n${work ? "\nوالمطلوب الجاي:\n" + work : ""}\n\n` + Study.PROMPTS.mindmap.replace("لمحتوى الملف", "لخطة دراسة المادة كاملة (كل فرع رئيسي = مرحلة دراسة، وجوّاه المواضيع/الملفات، وبالملاحظة ليش هاد الترتيب أو نصيحة)"), () => {}, null, (k2, m) => w.status(k2, m));
+          w.stop(); const j = Study.parseJSON(txt); KV.set(key, j); renderMindmap(po, j); buzz();
+        } catch (er) { w.stop(); po.innerHTML = `<div class="err">${esc(er.message)}</div>`; }
+      };
     } catch (e) { if (e.code === "auth") return handleErr(e); body.innerHTML = `<div class="err">${esc(e.message)}</div>`; }
   };
   document.getElementById("ctabs").onclick = e => { const b = e.target.closest("button"); if (!b) return; sessionStorage.setItem("ctab-" + id, b.dataset.t);
@@ -244,91 +288,252 @@ routes.course = async (id) => {
 
 routes.study = async (arg) => {
   const [courseid, cmid, idx] = arg.split(".");
-  $app.innerHTML = `<div class="page"><div class="spinner"></div></div>`;
   const secs = await Study.courseContents(courseid);
   let f = null; for (const s of secs) for (const x of s.files) if (x.cmid == cmid && x.idx == idx) f = x;
   if (!f) { $app.innerHTML = `<div class="page"><div class="empty">ما لقيت الملف</div></div>`; return; }
   const k = Study.kindOf(f);
   const cname = (data && (data.courses.find(c => c.id == courseid) || {}).name) || "";
   const fileLink = Moodle.fileUrl(f.url);
-  $app.innerHTML = `<div class="page">
-    <div class="top"><button class="back" onclick="history.back()">→ رجوع</button></div>
+  const RES = t => "res:" + Study.fkey(f) + ":" + t;
+  $app.innerHTML = `<div class="page enter">
+    <div class="top"><button class="back" onclick="history.back()">→ رجوع</button><span id="docstate" class="pill past">⏳ بجهّز الملف…</span></div>
     <div class="filehead"><div class="bigic file-${k}">${Study.icon(k)}</div>
       <div style="min-width:0"><div class="small muted" dir="auto">${esc(cname)}</div><h1 style="margin:0;font-size:20px" dir="auto">${esc(f.title)}</h1>
       <div class="small muted" dir="auto">${esc(f.filename)} ${Study.sizeLabel(f.size) ? "· " + Study.sizeLabel(f.size) : ""}</div></div></div>
     <div class="btns" style="margin:14px 0 4px">
-      <a class="btn" href="${esc(fileLink)}" target="_blank" rel="noopener">📥 افتح الملف</a>
-      <a class="btn" href="https://notebooklm.google.com/" target="_blank" rel="noopener" onclick="toast('نزّل الملف وارفعه بـ NotebookLM كمصدر 📚', 4000)">📓 NotebookLM ↗</a>
+      <a class="btn" href="${esc(fileLink)}" target="_blank" rel="noopener" onclick="buzz()">📥 افتح الملف</a>
+      <button class="btn nlm" id="nlm">📓 ادرسه بـ NotebookLM</button>
     </div>
     <div id="ferr"></div>
     ${!AI.ready() ? `<div class="card"><b>حط مفتاح الـ AI أول</b><div class="btns"><button class="btn primary" onclick="go('settings')">الإعدادات</button></div></div>` : `
-    <h2>ادرس من الملف</h2>
-    <div class="tools">
-      <button class="tool" data-t="summary"><span>📝</span>ملخّص</button>
+    <div class="tools" id="tools">
+      <button class="tool on" data-t="summary"><span>📝</span>ملخّص</button>
+      <button class="tool" data-t="video"><span>🎬</span>درس فيديو</button>
+      <button class="tool" data-t="mindmap"><span>🌳</span>خريطة</button>
+      <button class="tool" data-t="sim"><span>🎮</span>محاكاة</button>
+      <button class="tool" data-t="diagram"><span>📊</span>رسم</button>
       <button class="tool" data-t="explain"><span>👨‍🏫</span>اشرحلي</button>
-      <button class="tool" data-t="cards"><span>🃏</span>بطاقات مراجعة</button>
-      <button class="tool" data-t="quiz"><span>🎯</span>كويز تدريبي</button>
+      <button class="tool" data-t="cards"><span>🃏</span>بطاقات</button>
+      <button class="tool" data-t="quiz"><span>🎯</span>كويز</button>
     </div>
     <div id="out"></div>
     <h2>اسأل عن الملف</h2>
+    <div class="sugg" id="fsugg"><button class="chip">شو أهم إشي ممكن يجي بالامتحان؟</button><button class="chip">اعطيني مثال محلول</button><button class="chip">اشرحلي أصعب جزء</button></div>
     <div id="fchat" class="chat"></div>
     <form class="composer" id="fcomp" style="position:static"><div class="bar">
-      <textarea id="finp" rows="1" placeholder="مثلاً: شو الفرق بين الـ Stack والـ Queue بهاد الملف؟" dir="auto"></textarea>
+      <textarea id="finp" rows="1" placeholder="اسأل أي إشي عن الملف…" dir="auto"></textarea>
       <button class="iconbtn send" id="fsend">↑</button></div></form>`}
   </div>`;
+
+  // ---- NotebookLM: download the file + copy a ready prompt + open NotebookLM, all in one tap
+  document.getElementById("nlm").onclick = async () => {
+    buzz();
+    const sum = await KV.get(RES("summary")) || await KV.get(RES("explain")) || "";
+    const prompt = nlmPrompt(f, cname, sum);
+    let copied = false; try { await navigator.clipboard.writeText(prompt); copied = true; } catch {}
+    sheet(`<h3 style="margin:0 0 6px">📓 جاهز لـ NotebookLM</h3>
+      <p class="small muted" style="margin:0 0 12px">NotebookLM ما بيسمح لأي تطبيق يرفعله ملفات، فجهّزتلك كل إشي:</p>
+      <ol class="steps">
+        <li><a class="btn primary" href="${esc(fileLink)}" target="_blank" rel="noopener">📥 نزّل الملف</a></li>
+        <li><a class="btn primary" href="https://notebooklm.google.com/" target="_blank" rel="noopener">افتح NotebookLM ↗</a><div class="small muted">New notebook ← ارفع الملف اللي نزّلته</div></li>
+        <li><button class="btn ${copied ? "" : "primary"}" id="cpy">${copied ? "✓ البرومت منسوخ" : "📋 انسخ البرومت"}</button><div class="small muted">الصقه بالشات تبع NotebookLM${sum ? " (فيه ملخص التطبيق عشان يركّز أكثر)" : ""}</div></li>
+      </ol>
+      <details><summary class="small">شوف البرومت</summary><pre class="promptbox" dir="auto">${esc(prompt)}</pre></details>`);
+    document.getElementById("cpy").onclick = async e => { try { await navigator.clipboard.writeText(prompt); e.target.textContent = "✓ البرومت منسوخ"; buzz(); } catch { toast("انسخه من «شوف البرومت»"); } };
+  };
   if (!AI.ready()) return;
-  let doc = null;
-  const getDoc = async () => {
-    if (doc) return doc;
-    document.getElementById("ferr").innerHTML = `<div class="note">⏳ بقرأ الملف…</div>`;
-    try { doc = await Study.load(f); document.getElementById("ferr").innerHTML = ""; return doc; }
-    catch (e) {
-      if (e.code === "fetch") {
-        document.getElementById("ferr").innerHTML = `<div class="note"><b>موقع الجامعة ما خلّى التطبيق ينزّل الملف لحاله.</b><br>الحل السريع: اكبس «📥 افتح الملف» فوق ونزّله، وبعدين ارفعه من هون 👇${e.noProxy ? `<br><span class="small">وإذا بدك يفتح لحاله كل مرة، فعّل «فتح الملفات تلقائياً» من ⚙️ الإعدادات.</span>` : ""}
-          <div class="btns"><label class="btn primary">📤 ارفع الملف<input type="file" id="localf" accept=".pdf,.pptx,.docx,.txt,image/*" hidden></label></div></div>`;
-        document.getElementById("localf").onchange = async ev => {
-          const file = ev.target.files[0]; if (!file) return;
-          try { doc = await Study.fromLocal(file); document.getElementById("ferr").innerHTML = `<div class="goodnote">✓ تمام، قريت «${esc(file.name)}». اختار شو بدك 👇</div>`; }
-          catch (er) { document.getElementById("ferr").innerHTML = `<div class="err">${esc(er.message)}</div>`; }
-        };
-      } else document.getElementById("ferr").innerHTML = `<div class="err">${esc(e.message)}</div>`;
-      throw e;
-    }
-  };
+
+  // ---- get the file ready in the background right away (from cache = instant)
+  const state = document.getElementById("docstate");
+  let doc = null, docErr = null;
+  const docP = Study.load(f).then(d => { doc = d; state.className = "pill ok"; state.textContent = "✓ الملف جاهز"; return d; })
+    .catch(e => { docErr = e; state.className = "pill urgent"; state.textContent = "⚠️ ما نزل"; showFetchErr(e); throw e; });
+  docP.catch(() => {});
+  function showFetchErr(e) {
+    const el = document.getElementById("ferr"); if (!el) return;
+    if (e.code === "fetch") {
+      el.innerHTML = `<div class="note"><b>موقع الجامعة ما خلّى التطبيق ينزّل الملف لحاله.</b><br>نزّله من «📥 افتح الملف» وارفعه من هون 👇${e.noProxy ? `<br><span class="small">أو فعّل «فتح الملفات تلقائياً» من ⚙️ الإعدادات.</span>` : ""}
+        <div class="btns"><label class="btn primary">📤 ارفع الملف<input type="file" id="localf" accept=".pdf,.pptx,.docx,.txt,image/*" hidden></label></div></div>`;
+      document.getElementById("localf").onchange = async ev => {
+        const file = ev.target.files[0]; if (!file) return;
+        try { doc = await Study.fromLocal(file); Study.remember(f, doc); docErr = null; el.innerHTML = ""; state.className = "pill ok"; state.textContent = "✓ الملف جاهز"; buzz(); run(current, false); }
+        catch (er) { el.innerHTML = `<div class="err">${esc(er.message)}</div>`; }
+      };
+    } else el.innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  }
+  const getDoc = async () => { if (doc) return doc; if (docErr && docErr.code === "fetch") throw docErr; return docP; };
+
+  // ---- study tools: cached results show instantly; summary starts by itself
   const out = document.getElementById("out");
-  const tools = document.querySelectorAll(".tool");
-  const busy = on => tools.forEach(t => t.disabled = on);
-  document.querySelector(".tools").onclick = async e => {
-    const b = e.target.closest(".tool"); if (!b || b.disabled) return;
-    const t = b.dataset.t; busy(true);
-    out.innerHTML = `<div class="card"><div class="spinner" style="margin:10px auto"></div><p class="small muted" style="text-align:center;margin:0">${t === "cards" ? "بجهّز البطاقات…" : t === "quiz" ? "بجهّز الأسئلة…" : "بقرأ وبكتب…"}</p></div>`;
+  let current = "summary", runId = 0;
+  async function run(t, fresh) {
+    current = t; const my = ++runId;
+    document.querySelectorAll(".tool").forEach(b => b.classList.toggle("on", b.dataset.t === t));
+    const cached = !fresh && await KV.get(RES(t));
+    if (my !== runId) return;
+    if (cached) return show(t, cached, true);
+    out.innerHTML = `<div class="card answer"></div>`;
+    const box = out.firstChild, w = waiter(box);
+    let d; try { w.status("read"); d = await getDoc(); } catch (e) { w.stop(); out.innerHTML = ""; return; }
+    if (my !== runId) return;
     try {
-      const d = await getDoc();
-      if (t === "summary" || t === "explain") {
-        const box = document.createElement("div"); box.className = "card msg ai answer"; out.innerHTML = ""; out.appendChild(box);
-        const w = waiter(box);
-        await Study.ask(d, t, txt => w.text(txt), null, (k, m) => w.status(k, m));
+      if (TEXT_TOOLS.includes(t)) {
+        const txt = await Study.ask(d, t, x => { if (my === runId) (t === "sim" ? w.status("build") : w.text(x)); }, null, (kk, m) => w.status(kk, m));
+        KV.set(RES(t), txt); if (my === runId) show(t, txt, false);
       } else {
-        const box = out.querySelector(".card"); box.innerHTML = ""; const w = waiter(box);
-        const txt = await Study.ask(d, t, () => {}, null, (k, m) => w.status(k, m)); w.stop();
-        const j = Study.parseJSON(txt);
-        t === "cards" ? renderCards(out, j.cards || []) : renderQuiz(out, j.questions || []);
+        const txt = await Study.ask(d, t, () => {}, null, (kk, m) => w.status(kk, m)); w.stop();
+        const j = Study.parseJSON(txt); KV.set(RES(t), j); if (my === runId) show(t, j, false);
       }
-    } catch (err) { if (err.code !== "fetch") out.innerHTML = `<div class="err">${esc(err.message === "Unexpected end of JSON input" || /JSON/.test(err.message) ? "ما طلع الجواب مرتب، جرّب مرة ثانية." : err.message)}</div>`; else out.innerHTML = ""; }
-    busy(false);
-  };
+      buzz();
+    } catch (err) { w.stop(); if (my === runId) out.innerHTML = `<div class="err">${esc(/JSON/.test(err.message) ? "ما طلع الجواب مرتب، جرّب مرة ثانية." : err.message)}</div><button class="btn" onclick="this.previousElementSibling.remove();this.remove()">تمام</button>`; }
+  }
+  function show(t, val, fromCache) {
+    const redo = `<button class="link redo" data-redo="${t}">↻ ${fromCache ? "اعمل واحد جديد" : "جديد"}</button>`;
+    if (t === "sim") { out.innerHTML = `<div></div>${redo}`; renderSim(out.firstChild, val); }
+    else if (TEXT_TOOLS.includes(t)) { out.innerHTML = `<div class="card msg ai answer">${AI.md(val)}</div>${redo}`; enhance(out.firstChild); }
+    else {
+      out.innerHTML = `<div></div>${redo}`;
+      const el = out.firstChild;
+      if (t === "cards") renderCards(el, (val.cards || []).slice());
+      else if (t === "quiz") renderQuiz(el, val.questions || []);
+      else if (t === "mindmap") renderMindmap(el, val);
+      else if (t === "video") renderVideo(el, val);
+    }
+    out.querySelector("[data-redo]").onclick = () => run(t, true);
+  }
+  document.getElementById("tools").onclick = e => { const b = e.target.closest(".tool"); if (b) { buzz(); run(b.dataset.t, false); } };
+  run("summary", false);
+
+  // ---- chat about the file
   const msgs = [];
   const fchat = document.getElementById("fchat"), finp = document.getElementById("finp");
   finp.addEventListener("input", () => { finp.style.height = "auto"; finp.style.height = Math.min(finp.scrollHeight, 140) + "px"; });
+  document.getElementById("fsugg").onclick = e => { const b = e.target.closest(".chip"); if (b) { finp.value = b.textContent; document.getElementById("fcomp").requestSubmit(); } };
   document.getElementById("fcomp").onsubmit = async e => {
-    e.preventDefault(); const q = finp.value.trim(); if (!q) return; finp.value = "";
+    e.preventDefault(); const q = finp.value.trim(); if (!q) return; finp.value = ""; buzz();
+    const sg = document.getElementById("fsugg"); if (sg) sg.remove();
     const me = document.createElement("div"); me.className = "msg me"; me.textContent = q; fchat.appendChild(me);
     const ai = document.createElement("div"); ai.className = "msg ai"; fchat.appendChild(ai); const w = waiter(ai);
+    ai.scrollIntoView({ block: "end", behavior: "smooth" });
     msgs.push({ role: "user", text: q });
-    try { const d = await getDoc(); const a = await Study.ask(d, null, txt => w.text(txt), msgs.slice(-12), (k, m) => w.status(k, m)); msgs.push({ role: "assistant", text: a }); }
-    catch (err) { w.stop(); msgs.pop(); ai.innerHTML = `<span style="color:var(--red)">${esc(err.code === "fetch" ? "ما قدرت أقرأ الملف" : err.message)}</span>`; }
+    try { w.status("read"); const d = await getDoc(); const a = await Study.ask(d, null, txt => w.text(txt), msgs.slice(-12), (kk, m) => w.status(kk, m)); msgs.push({ role: "assistant", text: a }); enhance(ai); }
+    catch (err) { w.stop(); msgs.pop(); ai.innerHTML = `<span style="color:var(--red)">${esc(err.code === "fetch" ? "ارفع الملف فوق أول 👆" : err.message)}</span>`; }
   };
 };
+
+const TEXT_TOOLS = ["summary", "explain", "sim", "diagram"];
+
+/* ---------- rich renderers: diagrams, simulations, mind maps, video lessons ---------- */
+let mermaidP = null;
+function loadMermaid() {
+  if (window.mermaid) return Promise.resolve(window.mermaid);
+  return mermaidP || (mermaidP = new Promise((res, rej) => { const sc = document.createElement("script"); sc.src = "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js";
+    sc.onload = () => { const dark = matchMedia("(prefers-color-scheme: dark)").matches; window.mermaid.initialize({ startOnLoad: false, theme: dark ? "dark" : "neutral", securityLevel: "strict", fontFamily: "IBM Plex Sans Arabic" }); res(window.mermaid); };
+    sc.onerror = () => rej(new Error("mermaid")); document.head.appendChild(sc); }));
+}
+let mmId = 0;
+async function drawMermaid(target, code) {
+  try {
+    const m = await loadMermaid();
+    const { svg } = await m.render("mm" + (++mmId), code.trim());
+    target.innerHTML = svg; target.classList.add("diagram");
+    target.onclick = () => sheet(`<div class="diagram big">${svg}</div>`);
+  } catch { target.innerHTML = `<pre dir="ltr">${esc(code)}</pre>`; }
+}
+function enhance(el) {
+  el.querySelectorAll("pre.lang-mermaid").forEach(pre => { const d = document.createElement("div"); pre.replaceWith(d); drawMermaid(d, pre.textContent); });
+  el.querySelectorAll("pre.lang-html").forEach(pre => { const code = pre.textContent; const d = document.createElement("div"); pre.replaceWith(d); renderSim(d, "```html\n" + code + "```"); });
+}
+function renderSim(el, txt) {
+  const m = String(txt).match(/```html\s*([\s\S]*?)(```|$)/i); const code = m ? m[1] : String(txt);
+  if (!/<(html|body|div|script)/i.test(code)) { el.innerHTML = `<div class="err">ما طلعت المحاكاة صح، اكبس «جديد» تحت.</div>`; return; }
+  el.innerHTML = `<div class="simwrap"><div class="simbar"><span>🎮 محاكاة تفاعلية</span><button class="link" data-full>⛶ كبّر</button></div><iframe class="sim" sandbox="allow-scripts" title="محاكاة"></iframe></div>`;
+  const fr = el.querySelector("iframe"); fr.srcdoc = code;
+  el.querySelector("[data-full]").onclick = () => { const w = el.querySelector(".simwrap"); w.classList.toggle("full"); };
+}
+function renderMindmap(el, tree) {
+  const node = (n, depth) => {
+    const kids = (n.children || []);
+    return `<li class="mm-n d${depth}${depth < 1 ? " open" : ""}">
+      <button class="mm-b" ${kids.length ? "data-k" : ""}>${n.emoji ? `<span class="mm-e">${esc(n.emoji)}</span>` : ""}<span class="mm-t" dir="auto">${esc(n.title)}</span>${kids.length ? `<span class="mm-c">${kids.length}</span>` : ""}</button>
+      ${n.note ? `<div class="mm-note" dir="auto">${esc(n.note)}</div>` : ""}
+      ${kids.length ? `<ul>${kids.map(c => node(c, depth + 1)).join("")}</ul>` : ""}</li>`;
+  };
+  el.innerHTML = `<div class="card mm"><div class="mm-head"><b dir="auto">🌳 ${esc(tree.title || "خريطة المادة")}</b><button class="link" data-all>افتح الكل</button></div>
+    <ul class="mm-root">${(tree.children || []).map((c, i) => node({ ...c, title: `${i + 1}. ${c.title}` }, 0)).join("")}</ul>
+    <p class="small muted" style="margin:10px 0 0">ادرس بالترتيب من فوق لتحت. اكبس على أي فرع عشان تفتحه.</p></div>`;
+  el.onclick = e => {
+    const b = e.target.closest(".mm-b"); if (b) { b.parentElement.classList.toggle("open"); buzz(); return; }
+    if (e.target.closest("[data-all]")) { const all = el.querySelectorAll(".mm-n"); const open = [...all].some(n => !n.classList.contains("open")); all.forEach(n => n.classList.toggle("open", open)); }
+  };
+}
+function renderVideo(el, v) {
+  const scenes = v.scenes || []; if (!scenes.length) { el.innerHTML = `<div class="err">ما طلع الدرس، جرّب «جديد».</div>`; return; }
+  let i = 0, playing = false, timer = null;
+  const synth = window.speechSynthesis;
+  const voice = () => { const vs = synth ? synth.getVoices() : []; return vs.find(x => /^ar/i.test(x.lang)) || null; };
+  el.innerHTML = `<div class="video"><div class="vscreen" id="vs"></div>
+    <div class="vbar"><div class="vprog"><div id="vp"></div></div>
+      <div class="vctrl"><button class="iconbtn" id="vprev">⏮</button><button class="iconbtn send big" id="vplay">▶</button><button class="iconbtn" id="vnext">⏭</button></div>
+      <div class="small muted" style="text-align:center" id="vinfo"></div></div></div>`;
+  const vs = el.querySelector("#vs");
+  const stopVoice = () => { try { synth && synth.cancel(); } catch {} clearTimeout(timer); };
+  const showScene = () => {
+    const sc = scenes[i];
+    vs.innerHTML = `<div class="scene"><div class="s-emoji">${esc(sc.emoji || "🎯")}</div><h3 dir="auto">${esc(sc.title || "")}</h3>
+      <ul>${(sc.points || []).map((p, k) => `<li dir="auto" style="animation-delay:${0.4 + k * 0.7}s">${esc(p)}</li>`).join("")}</ul>
+      ${sc.diagram ? `<div class="s-diag"></div>` : ""}<div class="s-say" dir="auto">${esc(sc.say || "")}</div></div>`;
+    if (sc.diagram) drawMermaid(vs.querySelector(".s-diag"), sc.diagram);
+    el.querySelector("#vp").style.width = ((i + 1) / scenes.length * 100) + "%";
+    el.querySelector("#vinfo").textContent = `${esc(v.title || "")} · ${i + 1}/${scenes.length}`;
+  };
+  const speakThenNext = () => {
+    stopVoice(); if (!playing) return;
+    const sc = scenes[i], text = sc.say || sc.title || "";
+    const next = () => { if (!playing) return; if (i < scenes.length - 1) { i++; showScene(); speakThenNext(); } else { playing = false; el.querySelector("#vplay").textContent = "↺"; } };
+    if (synth && voice()) { const u = new SpeechSynthesisUtterance(text); u.voice = voice(); u.lang = u.voice.lang; u.rate = 1.05; u.onend = () => { timer = setTimeout(next, 500); }; u.onerror = () => { timer = setTimeout(next, Math.max(3500, text.length * 70)); }; synth.speak(u); }
+    else timer = setTimeout(next, Math.max(4000, text.length * 75));
+  };
+  el.querySelector("#vplay").onclick = () => {
+    buzz();
+    if (!playing && i === scenes.length - 1 && el.querySelector("#vplay").textContent === "↺") { i = 0; showScene(); }
+    playing = !playing; el.querySelector("#vplay").textContent = playing ? "⏸" : "▶";
+    playing ? speakThenNext() : stopVoice();
+  };
+  el.querySelector("#vnext").onclick = () => { if (i < scenes.length - 1) { i++; showScene(); if (playing) speakThenNext(); } };
+  el.querySelector("#vprev").onclick = () => { if (i > 0) { i--; showScene(); if (playing) speakThenNext(); } };
+  window.addEventListener("hashchange", stopVoice, { once: true });
+  if (synth) synth.getVoices();
+  showScene();
+}
+
+function nlmPrompt(f, course, summary) {
+  const pts = summary ? summary.replace(/[#*`]/g, "").split("\n").map(x => x.trim()).filter(Boolean).slice(0, 25).join("\n") : "";
+  return `إنت مدرّسي الخصوصي لمادة "${course}" بالجامعة، وأنا طالب سنة خامسة نظم حاسوبية.
+المصدر: ملف "${f.filename}" (${f.title}).
+
+بدي تدرّسني هاد الملف كامل خطوة بخطوة:
+1. ابدأ بفكرة عامة بسيطة عن الموضوع وليش مهم.
+2. اشرح كل مفهوم بالترتيب اللي بالملف، بلغة بسيطة، مع مثال واقعي، ومثال محلول إذا في معادلات أو خوارزميات.
+3. نبّهني على الأشياء اللي الطلاب بيغلطوا فيها، والنقاط اللي غالباً بتيجي بالامتحان.
+4. بالآخر اعطيني 5 أسئلة امتحان (فهم وتطبيق) مع إجاباتها.
+احكي بالعربي (لهجة أردنية خفيفة)، والمصطلحات التقنية بالإنجليزي، واعتمد على الملف بس وحط مرجع للمكان بالملف.
+${pts ? `\nهاي النقاط الأساسية اللي طلعت من الملف، ركّز عليها بالشرح:\n${pts}\n` : ""}`;
+}
+
+function sheet(html) {
+  const el = document.createElement("div"); el.className = "sheet-wrap";
+  el.innerHTML = `<div class="sheet"><div class="grab"></div>${html}<button class="btn block" style="margin-top:14px" data-close>سكّر</button></div>`;
+  el.onclick = e => { if (e.target === el || e.target.hasAttribute("data-close")) { el.classList.add("out"); setTimeout(() => el.remove(), 200); } };
+  document.body.appendChild(el);
+}
+function confetti() {
+  const c = document.createElement("div"); c.className = "confetti";
+  const colors = ["#6fcf97", "#f2b45c", "#ff8a80", "#7fb3ff", "#c39bff"];
+  c.innerHTML = Array.from({ length: 70 }, (_, i) => `<i style="left:${Math.random() * 100}%;background:${colors[i % 5]};animation-delay:${Math.random() * .4}s;animation-duration:${1.6 + Math.random()}s;transform:rotate(${Math.random() * 360}deg)"></i>`).join("");
+  document.body.appendChild(c); setTimeout(() => c.remove(), 3200);
+}
+window.buzz = () => { try { navigator.vibrate && navigator.vibrate(12); } catch {} };
 
 function renderCards(el, cards) {
   if (!cards.length) { el.innerHTML = `<div class="err">ما طلعت بطاقات، جرّب مرة ثانية.</div>`; return; }
@@ -353,6 +558,7 @@ function renderQuiz(el, qs) {
   const draw = () => {
     if (i >= qs.length) {
       const pct = Math.round(score / qs.length * 100);
+      if (pct >= 80) confetti();
       el.innerHTML = `<div class="card" style="text-align:center"><div style="font-size:40px">${pct >= 80 ? "🏆" : pct >= 50 ? "👍" : "📚"}</div><b>علامتك ${score} من ${qs.length}</b><p class="muted">${pct >= 80 ? "ممتاز، إنت جاهز!" : pct >= 50 ? "منيح، راجع الأسئلة اللي غلطت فيها." : "بدها مراجعة، جرّب الملخص أو البطاقات."}</p><button class="btn primary" id="again">أعيد الكويز</button></div>`;
       document.getElementById("again").onclick = () => { i = 0; score = 0; draw(); }; return;
     }
@@ -362,7 +568,7 @@ function renderQuiz(el, qs) {
       <div class="progress"><div style="width:${(i / qs.length) * 100}%"></div></div></div>`;
     el.querySelector(".opts").onclick = e => {
       const b = e.target.closest(".opt"); if (!b || el.querySelector(".opt.right")) return;
-      const j = +b.dataset.j, ok = j === +q.answer; if (ok) score++;
+      const j = +b.dataset.j, ok = j === +q.answer; if (ok) score++; try { navigator.vibrate && navigator.vibrate(ok ? 15 : [30, 40, 30]); } catch {}
       el.querySelectorAll(".opt").forEach((x, n) => { x.disabled = true; if (n === +q.answer) x.classList.add("right"); });
       if (!ok) b.classList.add("wrong");
       document.getElementById("why").innerHTML = `<div class="${ok ? "goodnote" : "note"}" dir="auto">${ok ? "✓ صح! " : "✗ "}${esc(q.why || "")}</div><button class="btn primary block" id="next">${i + 1 < qs.length ? "السؤال الجاي" : "شوف علامتك"}</button>`;
@@ -380,10 +586,10 @@ window.openMoodle = async (path) => {
 };
 
 routes.assign = async (id) => {
-  await refresh();
+  await ensureData();
   const a = data.items.find(i => i.kind === "assign" && i.id == id);
   if (!a) { $app.innerHTML = `<div class="page"><div class="empty">ما لقيت الواجب</div></div>`; return; }
-  $app.innerHTML = `<div class="page"><div class="top"><button class="back" onclick="history.back()">→ رجوع</button></div><div class="spinner"></div></div>`;
+  $app.innerHTML = `<div class="page"><div class="top"><button class="back" onclick="history.back()">→ رجوع</button></div>${skel(3)}</div>`;
   let st;
   try { st = await Moodle.submissionStatus(a.id); } catch (e) { st = null; }
   if (st && st.status === "submitted") { a.submitted = true; }
@@ -444,7 +650,7 @@ routes.assign = async (id) => {
 window.toggleDone = (key) => { const d = doneSet(); d.has(key) ? d.delete(key) : d.add(key); S.set("done", [...d]); route(); };
 
 routes.quiz = async (id) => {
-  await refresh();
+  await ensureData();
   const q = data.items.find(i => i.kind === "quiz" && i.id == id);
   if (!q) { $app.innerHTML = `<div class="page"><div class="empty">ما لقيت الكويز</div></div>`; return; }
   let attempts = [], access = null;
@@ -483,7 +689,7 @@ function waiter(el) {
   return {
     status(kind, m) {
       if (m) model = m;
-      label = kind === "thinking" ? "بفكّر بالجواب" : kind === "slow" ? "بطيء شوي، بجرّب موديل ثاني كمان" : kind === "read" ? "بقرأ الملف" : "بفكّر";
+      label = kind === "thinking" ? "بفكّر بالجواب" : kind === "slow" ? "بطيء شوي، بجرّب موديل ثاني كمان" : kind === "read" ? "بقرأ الملف" : kind === "build" ? "ببني المحاكاة" : "بفكّر";
       draw();
     },
     text(t) { if (!started) { started = true; clearInterval(iv); } el.innerHTML = AI.md(t); },
@@ -509,6 +715,7 @@ function aiContext() {
 واجباته وكويزاته من الإي ليرنينج:
 ${list}
 
+لما يفيد، استخدم رسومات: \`\`\`mermaid للمخططات (خطوات، علاقات، هياكل بيانات، خطط دراسة شجرية)، و\`\`\`html لمحاكاة تفاعلية صغيرة (صفحة كاملة بدون مكتبات خارجية، RTL) لما المفهوم بينفهم بالتجربة (Stack, Queue, sorting…).
 بتقدر: ترتّبله الأولويات وتعمل خطط دراسة، تشرح أي مفهوم بأمثلة، تقرأ الصور اللي ببعتها (أسئلة، سلايدات، كود، أخطاء)، تراجع شغله وتعطيه ملاحظات، وتساعده بالبرمجة.
 بالواجبات والكويزات اللي عليها علامات: هدفك إنه يفهم ويقدر يحل بنفسه، فاشرح وورجيه الطريقة وأمثلة مشابهة، بدل ما تعطيه نص جاهز ينسخه ويسلّمه.`;
 }
@@ -577,7 +784,7 @@ function msgEl(m) {
   const d = document.createElement("div");
   d.className = "msg " + (m.role === "user" ? "me" : "ai");
   if (m.role === "user") { d.innerHTML = (m.images || []).map(im => `<img src="data:${im.mime};base64,${im.data}">`).join("") + (m.fileNote || []).map(n => `<span class="filechip">📄 ${esc(n)}</span>`).join("") + esc(m.text); }
-  else d.innerHTML = AI.md(m.text || "");
+  else { d.innerHTML = AI.md(m.text || ""); setTimeout(() => enhance(d), 0); }
   return d;
 }
 window.newChat = () => { chatMsgs = []; S.set("ai.chat", []); route(); };
@@ -610,7 +817,7 @@ async function sendAI() {
       onModel: m => { const el = document.getElementById("aimodel"); if (el && AI.settings().geminiAuto) el.textContent = "Gemini · مجاني · " + m; },
       onStatus: (k, m) => w.status(k, m),
       onText: t => { w.text(t); if (window.innerHeight + window.scrollY > document.body.scrollHeight - 200) window.scrollTo(0, document.body.scrollHeight); } });
-    chatMsgs.push({ role: "assistant", text: full });
+    chatMsgs.push({ role: "assistant", text: full }); enhance(bubble);
   } catch (e) {
     w.stop();
     if (e.name === "AbortError") { chatMsgs.push({ role: "assistant", text: bubble.textContent || "(وقّفت)" }); }

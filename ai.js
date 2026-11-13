@@ -211,7 +211,7 @@ const AI = (() => {
   // Tiny, safe markdown renderer for answers
   function md(src) {
     const esc = s => s.replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
-    const blocks = []; let s = src.replace(/```(\w*)\n?([\s\S]*?)```/g, (m, l, code) => { blocks.push(`<pre><code>${esc(code)}</code></pre>`); return `\u0000${blocks.length - 1}\u0000`; });
+    const blocks = []; let s = src.replace(/```(\w*)\n?([\s\S]*?)```/g, (m, l, code) => { blocks.push(`<pre class="lang-${esc(l || "txt")}"><code>${esc(code)}</code></pre>`); return `\u0000${blocks.length - 1}\u0000`; });
     s = esc(s)
       .replace(/`([^`\n]+)`/g, "<code>$1</code>")
       .replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>")

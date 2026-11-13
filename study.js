@@ -1,10 +1,28 @@
 /* Study from course files: slides (PPTX), PDFs and Word files — summary, flashcards, practice quiz and chat about the file. */
+const KV = (() => {
+  let dbp = null;
+  const db = () => dbp || (dbp = new Promise((res, rej) => { const r = indexedDB.open("wajebati", 1); r.onupgradeneeded = () => r.result.createObjectStore("kv"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }));
+  const tx = async (mode, fn) => { const d = await db(); return new Promise((res, rej) => { const t = d.transaction("kv", mode); const q = fn(t.objectStore("kv")); t.oncomplete = () => res(q && q.result); t.onerror = () => rej(t.error); }); };
+  return {
+    get: k => tx("readonly", s => s.get(k)).catch(() => undefined),
+    set: (k, v) => tx("readwrite", s => s.put(v, k)).catch(() => {}),
+    del: k => tx("readwrite", s => s.delete(k)).catch(() => {})
+  };
+})();
+
 const Study = (() => {
   const contents = {}; // courseid -> sections
   const fileCache = new Map(); // url -> {kind:"pdf"|"text", data, name, pages}
 
-  async function courseContents(courseid) {
-    if (contents[courseid]) return contents[courseid];
+  // instant: returns cached list right away (if any) and refreshes in the background
+  async function courseContents(courseid, onFresh) {
+    if (contents[courseid]) { if (onFresh) fetchContents(courseid).then(f => { if (JSON.stringify(f) !== JSON.stringify(contents[courseid])) { contents[courseid] = f; onFresh(f); } }).catch(() => {}); return contents[courseid]; }
+    const cached = Moodle.store.get("cc." + courseid);
+    if (cached) { contents[courseid] = cached; fetchContents(courseid).then(f => { const changed = JSON.stringify(f) !== JSON.stringify(cached); contents[courseid] = f; if (changed && onFresh) onFresh(f); }).catch(() => {}); return cached; }
+    contents[courseid] = await fetchContents(courseid);
+    return contents[courseid];
+  }
+  async function fetchContents(courseid) {
     const secs = await Moodle.call("core_course_get_contents", { courseid });
     const out = [];
     for (const s of secs) {
@@ -21,7 +39,7 @@ const Study = (() => {
       }
       if (files.length) out.push({ name: s.name, files });
     }
-    contents[courseid] = out;
+    Moodle.store.set("cc." + courseid, out);
     return out;
   }
   function guessMime(n) {
@@ -59,8 +77,11 @@ const Study = (() => {
   }
 
   // Download the file from the e-learning and turn it into something the AI can read
+  const fkey = f => "doc:" + f.url.split("?")[0] + ":" + (f.time || 0);
   async function load(f) {
     if (fileCache.has(f.url)) return fileCache.get(f.url);
+    const saved = await KV.get(fkey(f));
+    if (saved) { fileCache.set(f.url, saved); return saved; }
     const k = kindOf(f);
     let blob;
     const direct = Moodle.fileUrl(f.url);
@@ -71,7 +92,7 @@ const Study = (() => {
     }
     if (!blob) { const err = new Error("cors"); err.code = "fetch"; err.noProxy = !proxy; throw err; }
     const out = await fromBlob(blob, f, k);
-    fileCache.set(f.url, out);
+    fileCache.set(f.url, out); KV.set(fkey(f), out);
     return out;
   }
 
@@ -120,9 +141,16 @@ const Study = (() => {
     return { prefix: `محتوى الملف "${doc.name}":\n<<<\n${doc.data}\n>>>\n\n` };
   }
 
-  const SYS = `إنت مدرّس خصوصي شاطر جداً لطالب جامعي بجامعة البلقاء (نظم حاسوبية). احكي باللهجة الأردنية، والمصطلحات التقنية بالإنجليزي. اعتمد على الملف المرفق بالدرجة الأولى، وإذا ضفت إشي من برّا الملف وضّح إنه إضافة. رتّب كلامك بعناوين ونقاط قصيرة.`;
+  const SYS = `إنت مدرّس خصوصي شاطر جداً لطالب جامعي بجامعة البلقاء (نظم حاسوبية). احكي باللهجة الأردنية، والمصطلحات التقنية بالإنجليزي. اعتمد على الملف المرفق بالدرجة الأولى، وإذا ضفت إشي من برّا الملف وضّح إنه إضافة. رتّب كلامك بعناوين ونقاط قصيرة. لما الرسم بيوضّح أكثر من الكلام (خطوات، علاقات، هياكل بيانات) ارسم بـ \`\`\`mermaid (كود صحيح وبسيط).`;
 
   const PROMPTS = {
+    mindmap: `اعمل خريطة ذهنية (mind map) شجرية لمحتوى الملف، مرتبة بالترتيب اللي لازم ينْدرس فيه: من الأساسيات للمتقدم. كل فرع عنوان قصير (2-5 كلمات) وملاحظة شرح بسطر، و3 مستويات كحد أقصى. رجّع JSON بس:
+{"title":"عنوان الموضوع","children":[{"title":"فرع","note":"شرح بسطر","emoji":"📦","children":[{"title":"فرع فرعي","note":"شرح"}]}]}`,
+    video: `اعمل درس فيديو قصير (7-10 مشاهد) بيشرح الملف لطالب لأول مرة، كأنه فيديو يوتيوب تعليمي ممتع. كل مشهد: إيموجي، عنوان، نص الراوي (جملتين-٣ باللهجة الأردنية، طبيعي وممتع)، ونقاط تظهر على الشاشة (2-4 نقاط قصيرة). إذا المشهد بيستفيد من رسم، ضيف diagram بصيغة Mermaid (flowchart أو graph، بسيط وصحيح). رجّع JSON بس:
+{"title":"عنوان الدرس","scenes":[{"emoji":"🎯","title":"عنوان","say":"نص الراوي","points":["نقطة","نقطة"],"diagram":"graph TD; A-->B"}]}`,
+    sim: `اعمل محاكاة تفاعلية بتشرح أهم مفهوم بالملف عن طريق التجربة (مثلاً: لو Stack أزرار push/pop مع أنيميشن، لو خوارزمية خطوات بتتحرك، لو معادلة سلايدرز بتغيّر القيم وبتشوف النتيجة).
+الشروط: صفحة HTML وحدة كاملة (HTML+CSS+JS) بدون أي مكتبات أو روابط خارجية، dir="rtl" والشرح بالعربي والمصطلحات بالإنجليزي، تصميم حلو وألوان هادية، أزرار كبيرة بتشتغل على الموبايل، وشرح قصير فوق شو تعمل. رجّع الكود بس داخل \`\`\`html`,
+    diagram: `اعمل رسم توضيحي واحد (Mermaid) بيلخّص الملف كله بصرياً: العلاقات بين المفاهيم أو خطوات العملية. استخدم flowchart TD، عناوين قصيرة بالإنجليزي أو العربي، وتأكد إنه الكود صحيح 100%. بعده اكتب 3 أسطر شرح للرسم. حط الرسم داخل \`\`\`mermaid`,
     summary: "لخّصلي هاد الملف ملخص دراسي مرتّب: الفكرة العامة، وبعدين أهم المفاهيم كل واحد بسطرين مع مثال، وبالآخر «أهم ٥ نقاط للامتحان».",
     explain: "اشرحلي الملف جزء جزء (أو سلايد سلايد) بطريقة بسيطة كأنك بتدرّسني لأول مرة، مع أمثلة من الحياة.",
     cards: `اعمل 12 بطاقة مراجعة (flashcards) من أهم المعلومات بالملف. رجّع JSON بس بهاد الشكل بدون أي كلام ثاني:
@@ -138,12 +166,14 @@ const Study = (() => {
   }
 
   async function ask(doc, task, onText, extraMsgs, onStatus) {
+    if (!doc) return AI.chat({ system: SYS, messages: [{ role: "user", text: PROMPTS[task] || task }], onText: onText || (() => {}), onStatus, json: /رجّع JSON/.test(PROMPTS[task] || task || ""), depth: "deep" });
     const a = attach(doc);
     const first = { role: "user", text: (a.prefix || "") + (PROMPTS[task] || task), images: a.images, docs: a.docs };
     const messages = extraMsgs ? [ { ...first, text: (a.prefix || "") + "هاد الملف اللي بدنا ندرس منه." }, { role: "assistant", text: "تمام، قريته. اسألني." }, ...extraMsgs ] : [first];
-    const json = task === "cards" || task === "quiz";
+    const json = ["cards", "quiz", "mindmap", "video"].includes(task);
     return AI.chat({ system: SYS, messages, onText: onText || (() => {}), onStatus, json, depth: extraMsgs ? "fast" : "deep" });
   }
 
-  return { courseContents, kindOf, icon, studyable, sizeLabel, load, fromLocal, ask, parseJSON };
+  function remember(f, doc) { fileCache.set(f.url, doc); KV.set(fkey(f), doc); }
+  return { PROMPTS, remember, fkey, courseContents, kindOf, icon, studyable, sizeLabel, load, fromLocal, ask, parseJSON };
 })();
