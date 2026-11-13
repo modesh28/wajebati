@@ -761,12 +761,12 @@ routes.quiz = async (id) => {
 function waiter(el) {
   const t0 = Date.now(); let label = "بفكّر", model = "", started = false;
   const draw = () => { if (started) return; const sec = Math.floor((Date.now() - t0) / 1000);
-    el.innerHTML = `<div class="typing"><span class="dots"><i></i><i></i><i></i></span><span>${label}… <b>${sec}ث</b></span></div>${model ? `<div class="small muted" dir="ltr" style="text-align:right">${esc(model)}</div>` : ""}`; };
+    el.innerHTML = `<div class="typing"><span class="dots"><i></i><i></i><i></i></span><span>${label}… <b>${sec}ث</b></span></div>`; };
   draw(); const iv = setInterval(draw, 1000);
   return {
     status(kind, m) {
       if (m) model = m;
-      label = kind === "thinking" ? "بفكّر بالجواب" : kind === "slow" ? "بطيء شوي، بجرّب موديل ثاني كمان" : kind === "read" ? "بقرأ الملف" : kind === "build" ? "ببني المحاكاة" : "بفكّر";
+      label = kind === "thinking" ? "بفكّر بالجواب" : kind === "slow" ? "لحظة، بسرّعلك الجواب" : kind === "read" ? "بقرأ الملف" : kind === "build" ? "ببني المحاكاة" : "بفكّر";
       draw();
     },
     text(t) { if (!started) { started = true; clearInterval(iv); } el.innerHTML = AI.md(t); },
@@ -812,7 +812,7 @@ routes.ai = async () => {
   const s = AI.settings();
   const ready = AI.ready();
   $app.innerHTML = `<div class="page chatpage">
-    <div class="top"><div><h1>المساعد ✨</h1><div class="sub" id="aimodel">${s.provider === "claude" ? "Claude · " + esc(s.claudeModel) : s.geminiAuto ? "Gemini · مجاني · بيبدّل الموديل لحاله" : "Gemini · " + esc(s.geminiModel)}</div></div>
+    <div class="top"><div><h1>المساعد ✨</h1><div class="sub" id="aimodel">مساعدك الدراسي الذكي · شغّال ٢٤ ساعة</div></div>
       <div style="display:flex;gap:6px">${ready ? `<button class="back callbtn" onclick="startCall()">📞 مكالمة</button>` : ""}${chatMsgs.length ? `<button class="back" onclick="newChat()">جديدة</button>` : ""}</div></div>
     ${!ready ? `<div class="card"><b>لازم تحط مفتاح الـ AI أول مرة</b><p class="small muted" style="margin:6px 0 10px">المفتاح بيتخزّن على تلفونك بس، وما بيروح لأي مكان غير الشركة نفسها.</p><button class="btn primary" onclick="go('settings')">افتح الإعدادات</button></div>` : ""}
     <div class="chat" id="chat"></div>
@@ -895,7 +895,7 @@ async function sendAI(voice) {
     const recent = chatMsgs.slice(-20).map((m, i, arr) => ({ ...m, text: (m.hidden || "") + (m.text || ""), images: i >= arr.length - 4 ? m.images : [], docs: i >= arr.length - 4 ? m.docs : [], audio: i >= arr.length - 2 ? m.audio : [] }));
     if (recent[0] && recent[0].role === "assistant") recent.shift();
     const full = await AI.chat({ system: aiContext(), messages: recent, signal: aiAbort.signal,
-      onModel: m => { const el = document.getElementById("aimodel"); if (el && AI.settings().geminiAuto) el.textContent = "Gemini · مجاني · " + m; },
+
       onStatus: (k, m) => w.status(k, m),
       onText: t => { w.text(t); if (window.innerHeight + window.scrollY > document.body.scrollHeight - 200) window.scrollTo(0, document.body.scrollHeight); } });
     chatMsgs.push({ role: "assistant", text: full }); enhance(bubble);
@@ -912,7 +912,7 @@ async function sendAI(voice) {
 
 
 /* ---------------- voice: notes + live call ---------------- */
-// record the mic and turn it into a small 16kHz WAV (works everywhere, Gemini understands it)
+// record the mic and turn it into a small 16kHz WAV (works everywhere, the AI understands it)
 async function recordStart() {
   const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
   const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -1068,30 +1068,23 @@ routes.settings = async () => {
 
     <h2>الذكاء الاصطناعي</h2>
     <div class="card">
-      <div class="field"><label>المزوّد</label>
-        <div class="seg" id="prov"><button data-p="gemini" class="${s.provider === "gemini" ? "on" : ""}">Gemini (مجاني)</button><button data-p="claude" class="${s.provider === "claude" ? "on" : ""}">Claude (مدفوع)</button></div></div>
-      <div id="pclaude" ${s.provider === "claude" ? "" : "hidden"}>
-        <div class="field"><label>Claude API key</label><input class="input" id="ck" type="password" dir="ltr" placeholder="sk-ant-…" value="${esc(s.claudeKey)}">
-          <div class="hint">من <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> ← API Keys. بدك تشحن رصيد بسيط.</div></div>
-        <div class="field"><label>الموديل</label><input class="input" id="cm" dir="ltr" value="${esc(s.claudeModel)}"><div class="hint">claude-sonnet-5-5 (سريع وذكي) أو claude-opus-5-5 (الأذكى، أغلى)</div></div>
-      </div>
-      <div id="pgemini" ${s.provider === "gemini" ? "" : "hidden"}>
-        <div class="field"><label>Gemini API key</label><input class="input" id="gk" type="password" dir="ltr" placeholder="AIza…" value="${esc(s.geminiKey)}">
-          <div class="hint">مجاني من <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a></div></div>
+      <div id="pgemini">
+        <div class="field"><label>مفتاح الذكاء الاصطناعي (API key)</label><input class="input" id="gk" type="password" dir="ltr" placeholder="AIza…" value="${esc(s.geminiKey)}">
+          <div class="hint">من <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a></div></div>
         <label class="field" style="display:flex;gap:10px;align-items:flex-start;cursor:pointer"><input type="checkbox" id="gauto" ${s.geminiAuto ? "checked" : ""} style="margin-top:5px;width:18px;height:18px">
-          <span><b>تبديل تلقائي بين الموديلات المجانية</b><span class="hint" style="display:block">بيستخدم أذكى موديل مجاني، ولما يوصل حده بيحوّل للي بعده لحاله.<br><span id="gchain" dir="ltr"></span></span></span></label>
+          <span><b>تبديل تلقائي بين الموديلات</b><span class="hint" style="display:block">بيستخدم أذكى موديل متاح، ولما يوصل حده بيحوّل للي بعده لحاله.</span></span></label>
         <div class="field" id="gmwrap" ${s.geminiAuto ? "hidden" : ""}><label>الموديل</label><input class="input" id="gm" dir="ltr" value="${esc(s.geminiModel)}"></div>
       </div>
       <div class="field" style="margin-top:6px"><label>لغة الشرح</label>
         <div class="seg" id="lang"><button data-l="both" class="${s.lang === "both" ? "on" : ""}">عربي + English</button><button data-l="ar" class="${s.lang === "ar" ? "on" : ""}">عربي</button><button data-l="en" class="${s.lang === "en" ? "on" : ""}">English</button></div>
         <div class="hint">بكل الحالات بيشرحلك من الصفر، خطوة خطوة.</div></div>
       <button class="btn primary block" id="saveai">حفظ</button>
-      <p class="small muted" style="margin:10px 0 0">🔒 المفاتيح بتنحفظ على هاد الجهاز بس، والمحادثات بتروح مباشرة للشركة اللي اخترتها.</p>
+      <p class="small muted" style="margin:10px 0 0">🔒 المفاتيح بتنحفظ على هاد الجهاز بس، والمحادثات بتروح مباشرة لخدمة الذكاء الاصطناعي بدون أي وسيط.</p>
     </div>
 
     <h2>فتح الملفات تلقائياً</h2>
     <div class="card">
-      <p class="small muted" style="margin:0 0 10px">موقع الجامعة ما بيسمح للتطبيق ينزّل ملفات المواد لحاله. الحل: «جسر» صغير مجاني على Cloudflare بينزّل ملفات الإي ليرنينج بس ويعطيها للتطبيق. بتعمله مرة وحدة (٥ دقايق) — الخطوات بملف <a href="https://github.com/modesh28/wajebati/blob/main/proxy/README.md" target="_blank" rel="noopener">proxy/README.md</a>.</p>
+      <p class="small muted" style="margin:0 0 10px">موقع الجامعة ما بيسمح للتطبيق ينزّل ملفات المواد لحاله. الحل: «جسر» صغير على Cloudflare بينزّل ملفات الإي ليرنينج بس ويعطيها للتطبيق. بتعمله مرة وحدة (٥ دقايق) — الخطوات بملف <a href="https://github.com/modesh28/wajebati/blob/main/proxy/README.md" target="_blank" rel="noopener">proxy/README.md</a>.</p>
       <div class="field"><label>رابط الجسر</label><input class="input" id="proxy" dir="ltr" placeholder="https://wajebati-files.xxxx.workers.dev" value="${esc(S.get("proxyUrl", ""))}"></div>
       <button class="btn block" id="saveproxy">حفظ</button>
     </div>
@@ -1102,22 +1095,16 @@ routes.settings = async () => {
   </div>`;
   document.getElementById("saveproxy").onclick = () => { S.set("proxyUrl", document.getElementById("proxy").value.trim()); toast("انحفظ ✓"); };
   document.getElementById("lang").onclick = e => { const b = e.target.closest("button"); if (!b) return; document.querySelectorAll("#lang button").forEach(x => x.classList.toggle("on", x === b)); AI.save({ lang: b.dataset.l }); buzz(); toast("✓ " + b.textContent); };
-  let prov = s.provider;
   document.getElementById("gauto").onchange = e => { document.getElementById("gmwrap").hidden = e.target.checked; };
   async function showChain() {
     const el = document.getElementById("gchain"), k = document.getElementById("gk").value.trim();
     if (!el || !k) return;
     const list = await AI.freeChain(k), cool = S.get("ai.cooldown", {});
-    el.innerHTML = list.map(m => cool[m] > Date.now() ? `<s>${esc(m)}</s>` : esc(m)).join(" → ");
+    void list; void cool;
   }
   showChain();
-  document.getElementById("prov").onclick = e => {
-    const b = e.target.closest("button"); if (!b) return; prov = b.dataset.p;
-    document.querySelectorAll("#prov button").forEach(x => x.classList.toggle("on", x === b));
-    document.getElementById("pclaude").hidden = prov !== "claude"; document.getElementById("pgemini").hidden = prov !== "gemini";
-  };
   document.getElementById("saveai").onclick = () => {
-    AI.save({ provider: prov, claudeKey: document.getElementById("ck").value.trim(), claudeModel: document.getElementById("cm").value.trim() || "claude-sonnet-5-5",
+    AI.save({ provider: "gemini",
       geminiKey: document.getElementById("gk").value.trim(), geminiModel: document.getElementById("gm").value.trim() || "gemini-3.8-flash",
       geminiAuto: document.getElementById("gauto").checked });
     S.del("ai.freechain"); showChain();

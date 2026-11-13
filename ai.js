@@ -1,4 +1,4 @@
-/* AI assistant — calls Claude or Gemini directly from the phone with the user's own key (kept in this browser only). */
+/* AI assistant — calls the AI model directly from the phone with the user's own key (kept in this browser only). */
 const AI = (() => {
   const S = Moodle.store;
   const defaults = {
@@ -34,6 +34,7 @@ const AI = (() => {
   }
   function settings() {
     const s = Object.assign({}, defaults, S.get("ai.settings", {}));
+    s.provider = "gemini";
     if (/^gemini-(1|2)\./.test(s.geminiModel)) { s.geminiModel = defaults.geminiModel; S.set("ai.settings", s); } // old retired models
     return s;
   }
@@ -118,7 +119,7 @@ const AI = (() => {
       const queue = chain.filter(m => !(cool[m] > t0));
       if (!queue.length) {
         const soon = Math.min(...chain.map(m => cool[m] || t0));
-        throw new Error(`خلصت كل الموديلات المجانية لهلأ 😅 بترجع تشتغل حوالي الساعة ${new Date(soon).toLocaleTimeString("ar-JO", { hour: "numeric", minute: "2-digit" })}.`);
+        throw new Error(`المساعد وصل حده لهلأ 😅 بيرجع يشتغل حوالي الساعة ${new Date(soon).toLocaleTimeString("ar-JO", { hour: "numeric", minute: "2-digit" })}.`);
       }
       // Race: start the best model; if it hasn't started writing within a few seconds,
       // start the next one too and keep whichever answers first (the other is cancelled).
@@ -134,7 +135,7 @@ const AI = (() => {
           if (done || winner) return;
           if (queue.length) start();
           else if (active === 0) finish(reject, new Error(lastErr && lastErr.message === "وصلت الحد"
-            ? "كل الموديلات المجانية وصلت حدها هلأ. استنى دقيقة وجرّب." : "ما زبط: " + (lastErr ? lastErr.message : "")));
+            ? "المساعد مضغوط هلأ، جرّب كمان دقيقة." : "ما زبط: " + (lastErr ? lastErr.message : "")));
         };
         const scheduleHedge = () => { clearTimeout(hedgeTimer); hedgeTimer = setTimeout(() => { if (!winner && !done && queue.length) { onStatus && onStatus("slow"); start(); scheduleHedge(); } }, HEDGE); };
         async function start() {
@@ -154,7 +155,7 @@ const AI = (() => {
             if (done) return;
             const msg = (j.error && j.error.message) || res.statusText;
             if (res.status === 401 || (res.status === 400 && /API key/i.test(msg)) || (res.status === 403 && /key/i.test(msg)))
-              return finish(reject, new Error("مفتاح Gemini غلط. راجعه من الإعدادات."));
+              return finish(reject, new Error("مفتاح الذكاء الاصطناعي غلط. راجعه من الإعدادات."));
             if (res.status === 429) {
               const daily = /per.?day|PerDay|daily/i.test(JSON.stringify(j));
               const retry = JSON.stringify(j).match(/"retryDelay":\s*"(\d+)s"/);
@@ -165,8 +166,8 @@ const AI = (() => {
             if (res.status === 404 || (res.status === 400 && /model|not supported|not available/i.test(msg))) {
               cool[model] = Date.now() + 24 * 3600 * 1000; S.set("ai.cooldown", cool); S.del("ai.freechain"); return failNext(new Error(msg));
             }
-            if (res.status >= 500) return failNext(new Error("سيرفرات Google مضغوطة"));
-            return finish(reject, new Error("خطأ من Gemini: " + msg));
+            if (res.status >= 500) return failNext(new Error("السيرفر مضغوط"));
+            return finish(reject, new Error("صار خطأ بالمساعد: " + msg));
           }
           clearTimeout(timer);
           timer = setTimeout(() => ctl.abort("slow"), FIRST_BYTE); // still waiting for the first words

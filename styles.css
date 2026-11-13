@@ -297,3 +297,4 @@ h2{font-size:14px;color:var(--muted);font-weight:600;margin:22px 0 10px}
 .call-btns{display:flex;gap:28px}
 .cbtn{width:64px;height:64px;border-radius:50%;border:0;background:rgba(255,255,255,.12);color:#fff;font-size:24px;cursor:pointer}
 .cbtn.end{background:#e5484d}
+#lang button{white-space:nowrap;font-size:13px}
