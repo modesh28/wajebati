@@ -136,8 +136,9 @@ routes.room = async (code) => {
           const g = new Peer(undefined, { config: ICE, debug: 0 });
           g.on("open", () => { R.peer = g; R.isHost = false; const c = g.connect(hostId, { reliable: true }); wireConn(c); setStatus("", true); resolve(); });
           g.on("connection", wireConn); g.on("call", onCall);
-          g.on("error", e => { if (e.type === "peer-unavailable") { setStatus("⏳ بستنى صاحب الغرفة…"); } else setStatus("مشكلة بالاتصال: " + e.type); });
-        } else setStatus(err.type === "network" || err.type === "server-error" ? "النت ضعيف، بحاول كمان مرة…" : "مشكلة بالاتصال: " + err.type);
+          // host not reachable (left / not there yet): try again — if the room is empty we become the host
+          g.on("error", e => { if (!R.alive) return; if (e.type === "peer-unavailable") { setStatus("⏳ بوصل للغرفة…"); setTimeout(() => R.alive && !Object.values(R.conns).some(c => c.open) && restart(), 2500); } else setStatus(e.type === "network" ? "📶 النت ضعيف، بحاول…" : "مشكلة بالاتصال، بحاول كمان مرة…"); });
+        } else { setStatus(err.type === "network" || err.type === "server-error" ? "📶 النت ضعيف، بحاول كمان مرة…" : "مشكلة بالاتصال، بحاول كمان مرة…"); setTimeout(() => R.alive && !R.peer && restart(), 3000); }
       });
       p.on("connection", wireConn); p.on("call", onCall);
       p.on("disconnected", () => { try { p.reconnect(); } catch {} });
@@ -179,7 +180,10 @@ routes.room = async (code) => {
     if (running) tIv = setInterval(() => { if (!R.alive || !document.getElementById("rt")) return clearInterval(tIv);
       if (R.timer.endAt <= Date.now()) { clearInterval(tIv); try { navigator.vibrate && navigator.vibrate([200, 100, 200]); } catch {} toast(R.timer.mode === "focus" ? "🎉 خلصت الجلسة! استراحة" : "☕ خلصت الاستراحة"); if (R.timer.mode === "focus") logMinutes(R.timer.focus, R.title || "غرفة دراسة");
         if (R.isHost) { R.timer = { ...R.timer, mode: R.timer.mode === "focus" ? "break" : "focus", endAt: 0 }; sendAll({ t: "timer", timer: R.timer }); } drawTimer(); return; }
-      drawTimer(); }, 1000);
+      const lm = R.timer.endAt - Date.now(), tot = (R.timer.mode === "focus" ? R.timer.focus : R.timer.brk) * 60000;
+      const n = document.querySelector(".rtnum"), pr = document.querySelector("#rt .progress div");
+      if (n) n.textContent = `${String(Math.floor(lm / 60000)).padStart(2, "0")}:${String(Math.floor(lm / 1000) % 60).padStart(2, "0")}`;
+      if (pr) pr.style.width = (1 - lm / tot) * 100 + "%"; }, 1000);
   }
   document.getElementById("rform").onsubmit = e => { e.preventDefault(); const i = document.getElementById("rmsg"); const t = i.value.trim(); if (!t) return; i.value = ""; toHost({ t: "chat", name: myName(), text: t }); buzz(); };
   document.getElementById("rmic").onclick = async e => {

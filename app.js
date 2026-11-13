@@ -966,6 +966,7 @@ routes.ai = async () => {
   setTimeout(() => window.scrollTo(0, document.body.scrollHeight), 0);
   const inp = document.getElementById("inp");
   if (aiDraft) { inp.value = aiDraft; aiDraft = ""; }
+  if (window.__autoSend) { window.__autoSend = false; setTimeout(() => sendAI(), 50); }
   const grow = () => { inp.style.height = "auto"; inp.style.height = Math.min(inp.scrollHeight, 140) + "px"; };
   inp.addEventListener("input", grow); grow();
   inp.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !matchMedia("(pointer:coarse)").matches) { e.preventDefault(); document.getElementById("composer").requestSubmit(); } });

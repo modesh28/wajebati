@@ -148,15 +148,18 @@ routes.cquiz = async (id) => {
 
 /* ======================= 3) snap a question & solve ======================= */
 window.snapSolve = () => {
-  const inp = document.createElement("input"); inp.type = "file"; inp.accept = "image/*"; inp.capture = "environment";
+  if (!AI.ready()) { toast("فعّل المساعد أول من الإعدادات"); go("settings"); return; }
+  let inp = document.getElementById("snapin");
+  if (!inp) { inp = document.createElement("input"); inp.type = "file"; inp.accept = "image/*"; inp.capture = "environment"; inp.id = "snapin"; inp.style.cssText = "position:fixed;left:-9999px;opacity:0"; document.body.appendChild(inp); }
+  inp.value = "";
   inp.onchange = async () => {
     const f = inp.files[0]; if (!f) return;
     try {
       const im = await AI.imageFromFile(f, 2000);
       pendingImgs.push(im);
       aiDraft = "حلّلي هاد السؤال خطوة بخطوة: افهم المطلوب، الحل بالتفصيل، والجواب النهائي واضح، وبالآخر سؤال مشابه أتدرّب عليه.";
-      go("ai");
-      setTimeout(() => { const b = document.getElementById("composer"); if (b) b.requestSubmit(); }, 350);
+      window.__autoSend = true;
+      if (location.hash === "#ai") routes.ai(); else go("ai");
     } catch (e) { toast(e.message); }
   };
   inp.click();
@@ -280,7 +283,14 @@ routes.timer = async () => {
   };
   draw();
   clearInterval(timerIv);
-  timerIv = setInterval(() => { if (location.hash !== "#timer") { clearInterval(timerIv); return; } const n = document.querySelector(".tnum"); if (n && timerState().endAt > Date.now()) draw(); }, 1000);
+  timerIv = setInterval(() => {
+    if (location.hash !== "#timer") { clearInterval(timerIv); return; }
+    const t = timerState(); if (!(t.endAt > Date.now())) return;
+    const total = (t.mode === "focus" ? t.focus : t.brk) * 60000, leftMs = t.endAt - Date.now();
+    const n = document.querySelector(".tnum"), fg = document.querySelector(".tr-fg"); if (!n || !fg) return;
+    n.textContent = `${String(Math.floor(leftMs / 60000)).padStart(2, "0")}:${String(Math.floor(leftMs / 1000) % 60).padStart(2, "0")}`;
+    fg.style.strokeDashoffset = 2 * Math.PI * 52 * (leftMs / total);
+  }, 1000);
 };
 // finishes even if you left the page
 setInterval(() => {
@@ -320,51 +330,6 @@ routes.ch = async (code) => {
   } });
 };
 
-/* ======================= 8) voice review ======================= */
-routes.vreview = async () => {
-  const cards = (srsDue().length ? srsDue() : srsAll().slice(-20)).sort(() => Math.random() - .5).slice(0, 15);
-  if (!cards.length) { $app.innerHTML = `<div class="page"><div class="top"><button class="back" onclick="history.back()">→ رجوع</button></div><div class="card" style="text-align:center"><div style="font-size:40px">🎧</div><b>ما في بطاقات لسا</b><p class="muted">اعمل بطاقات من أي ملف وبعدين ارجع هون.</p></div></div>`; return; }
-  let i = 0, alive = true, score = 0, rec = null;
-  const synth = window.speechSynthesis; synth && synth.getVoices();
-  $app.innerHTML = `<div class="page enter"><div class="top"><button class="back" id="vrx">→ رجوع</button><span class="pill ok" id="vrs">0/${cards.length}</span></div>
-    <h1 style="margin:0 0 12px;font-size:22px">🎧 مراجعة صوتية</h1>
-    <div class="call vr"><button class="orb" id="vorb"><span></span></button><div class="call-state" id="vst">اكبس الدائرة عشان نبلّش</div><div class="call-text" id="vq" dir="auto"></div><div class="call-text small" id="va" dir="auto"></div></div>
-    <div class="btns" style="justify-content:center" id="vself" hidden><button class="btn" data-g="0">🔁 ما عرفت</button><button class="btn primary" data-g="1">✓ عرفت</button></div></div>`;
-  const box = $app.querySelector(".vr"), st = document.getElementById("vst"), qEl = document.getElementById("vq"), aEl = document.getElementById("va");
-  const set = (m, t) => { box.dataset.mode = m; st.textContent = t; };
-  const say = (text) => new Promise(res => { if (!synth) return setTimeout(res, 1500); try { synth.cancel(); } catch {} const u = new SpeechSynthesisUtterance(text.replace(/[*#`]/g, "")); const vs = synth.getVoices(); const latin = (text.match(/[a-z]/gi) || []).length > text.length * .5; const v = (latin ? vs.find(x => /^en/i.test(x.lang)) : vs.find(x => /^ar/i.test(x.lang))) || vs.find(x => /^ar/i.test(x.lang)); if (v) { u.voice = v; u.lang = v.lang; } u.rate = 1.05; u.onend = res; u.onerror = res; synth.speak(u); });
-  const listen = () => new Promise(res => { if (!SR) return res(null); const r = new SR(); rec = r; r.lang = srLang(); r.interimResults = true; let fin = ""; r.onresult = e => { const t = [...e.results].map(x => x[0].transcript).join(" "); aEl.textContent = "🗣️ " + t; if (e.results[e.results.length - 1].isFinal) fin = t; }; r.onend = () => res(fin); r.onerror = () => res(""); r.start(); });
-  const grade = async (c, ans) => {
-    if (!AI.ready()) return { correct: false, feedback: "" };
-    try { const t = await AI.chat({ system: "قيّم جواب طالب بسرعة. لهجة أردنية.", depth: "fast", json: true, messages: [{ role: "user", text: `السؤال: ${c.q}\nالجواب الصح: ${c.a}\nجواب الطالب: ${ans}\nرجّع JSON: {"correct":true/false,"feedback":"جملة قصيرة بتوضّح"}` }], onText: () => {} }); return Study.parseJSON(t); } catch { return { correct: false, feedback: "" }; }
-  };
-  const next = async () => {
-    if (!alive) return;
-    if (i >= cards.length) { set("idle", `خلصنا! عرفت ${score} من ${cards.length} 🎉`); qEl.textContent = ""; aEl.textContent = ""; await say(`خلصنا! عرفت ${score} من ${cards.length}`); if (score / cards.length >= .8) confetti(); return; }
-    const c = cards[i]; document.getElementById("vrs").textContent = `${i}/${cards.length}`;
-    qEl.textContent = c.q; aEl.textContent = ""; set("speak", "بسألك…"); await say(c.q); if (!alive) return;
-    if (!SR) { set("idle", "فكّر بالجواب، وبعدين اكبس الدائرة عشان تشوفه"); box.dataset.wait = "reveal"; return; }
-    set("listen", "بسمعك… جاوب"); const ans = await listen(); if (!alive) return;
-    if (!ans) { aEl.textContent = "الجواب: " + c.a; set("speak", "الجواب…"); await say("الجواب هو " + c.a); srsGrade(c.q, c.a, false, c.src); i++; return next(); }
-    set("think", "بشيك جوابك…"); const g = await grade(c, ans); if (!alive) return;
-    if (g.correct) score++; srsGrade(c.q, c.a, !!g.correct, c.src);
-    aEl.innerHTML = `${g.correct ? "✅" : "❌"} ${esc(g.feedback || "")}<br><span class="small">الجواب: ${esc(c.a)}</span>`;
-    set("speak", g.correct ? "صح!" : "مش زابط"); try { navigator.vibrate && navigator.vibrate(g.correct ? 20 : [40, 40, 40]); } catch {}
-    await say((g.correct ? "صح! " : "لأ. ") + (g.feedback || "") + (g.correct ? "" : " الجواب: " + c.a));
-    i++; next();
-  };
-  document.getElementById("vorb").onclick = () => {
-    buzz();
-    if (box.dataset.wait === "reveal") { box.dataset.wait = ""; aEl.textContent = "الجواب: " + cards[i].a; document.getElementById("vself").hidden = false; return; }
-    if (box.dataset.mode === "listen") { try { rec && rec.stop(); } catch {} return; }
-    if (!box.dataset.mode || box.dataset.mode === "idle") next();
-  };
-  document.getElementById("vself").onclick = e => { const b = e.target.closest("[data-g]"); if (!b) return; const ok = b.dataset.g === "1"; if (ok) score++; srsGrade(cards[i].q, cards[i].a, ok, cards[i].src); e.currentTarget.hidden = true; i++; next(); };
-  const stop = () => { alive = false; try { synth && synth.cancel(); } catch {} try { rec && rec.abort(); } catch {} };
-  document.getElementById("vrx").onclick = () => { stop(); history.back(); };
-  window.addEventListener("hashchange", stop, { once: true });
-};
-
 /* ======================= 9) share summaries as an image ======================= */
 let h2cP = null;
 function loadH2C() { if (window.html2canvas) return Promise.resolve(window.html2canvas); return h2cP || (h2cP = new Promise((res, rej) => { const sc = document.createElement("script"); sc.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"; sc.onload = () => res(window.html2canvas); sc.onerror = rej; document.head.appendChild(sc); })); }
@@ -393,7 +358,6 @@ function homeExtras() {
     <div class="quick">
       <button onclick="snapSolve()"><span>📸</span>صوّر سؤال</button>
       <button onclick="go('timer')"><span>⏱️</span>مؤقت</button>
-      <button onclick="go('vreview')"><span>🎧</span>مراجعة صوتية</button>
       <button onclick="go('gpa')"><span>🎓</span>المعدل</button>
       <button onclick="go('search')"><span>🔎</span>بحث</button>
       <button onclick="go('rooms')"><span>👥</span>غرف دراسة</button>
@@ -411,4 +375,4 @@ window.featureTools = () => [
 ];
 examReminder();
 // direct links to feature pages (e.g. a challenge link) need the routes above, so route again now
-if (/^#(exam|cquiz|notes|gpa|timer|ch|vreview)/.test(location.hash)) route();
+if (/^#(exam|cquiz|notes|gpa|timer|ch)/.test(location.hash)) route();
