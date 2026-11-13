@@ -485,17 +485,41 @@ let mermaidP = null;
 function loadMermaid() {
   if (window.mermaid) return Promise.resolve(window.mermaid);
   return mermaidP || (mermaidP = new Promise((res, rej) => { const sc = document.createElement("script"); sc.src = "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js";
-    sc.onload = () => { const dark = matchMedia("(prefers-color-scheme: dark)").matches; window.mermaid.initialize({ startOnLoad: false, theme: dark ? "dark" : "neutral", securityLevel: "strict", fontFamily: "IBM Plex Sans Arabic" }); res(window.mermaid); };
+    sc.onload = () => { const dark = matchMedia("(prefers-color-scheme: dark)").matches; window.mermaid.initialize({ startOnLoad: false, theme: dark ? "dark" : "neutral", securityLevel: "strict", fontFamily: "IBM Plex Sans Arabic", suppressErrorRendering: true }); res(window.mermaid); };
     sc.onerror = () => rej(new Error("mermaid")); document.head.appendChild(sc); }));
 }
-let mmId = 0;
-async function drawMermaid(target, code) {
+// AI-written diagrams often have small mistakes (Arabic labels, brackets inside text) — quote labels so they parse
+function fixMermaid(code) {
+  let c = code.trim().replace(/^```\w*|```$/g, "").trim();
+  if (!/^(graph|flowchart|sequenceDiagram|classDiagram|stateDiagram|erDiagram|mindmap|timeline|pie|gantt)/m.test(c)) c = "flowchart TD\n" + c;
+  c = c.replace(/;\s*/g, "\n");
+  // A[some (text)] → A["some (text)"]  — also [[ ]], { }, (( )), ( )
+  const q = t => '"' + t.trim().replace(/"/g, "'") + '"';
+  const ID = "([\\w\\u0600-\\u06FF]+)";
+  c = c.replace(new RegExp(ID + "\\[\\[(?!\")([^\\]\\n]+)\\]\\]", "g"), (m, id, t) => `${id}[[${q(t)}]]`)
+       .replace(new RegExp(ID + "\\[(?![\"\\[])([^\\]\\n]+)\\]", "g"), (m, id, t) => `${id}[${q(t)}]`)
+       .replace(new RegExp(ID + "\\{(?!\")([^}\\n]+)\\}", "g"), (m, id, t) => `${id}{${q(t)}}`)
+       .replace(new RegExp(ID + "\\(\\((?!\")([^\\n]+?)\\)\\)", "g"), (m, id, t) => `${id}((${q(t)}))`)
+       .replace(new RegExp(ID + "\\((?![\"(])([^()\\n]+)\\)", "g"), (m, id, t) => `${id}(${q(t)})`);
+  // edge labels: -->|text| stay, but strip quotes problems
+  return c;
+}
+let mmId = 0, mmQueue = Promise.resolve();
+// mermaid can only draw one diagram at a time, so queue them
+function drawMermaid(target, code) { const p = mmQueue.then(() => drawMermaid1(target, code)); mmQueue = p.catch(() => {}); return p; }
+async function drawMermaid1(target, code) {
+  const cleanup = () => document.querySelectorAll('body > [id^="dmm"], body > svg[id^="mm"], body > div[id^="dmm"]').forEach(n => n.remove());
   try {
     const m = await loadMermaid();
-    const { svg } = await m.render("mm" + (++mmId), code.trim());
+    let src = code.trim();
+    let ok = await m.parse(src, { suppressErrors: true });
+    if (!ok) { src = fixMermaid(src); ok = await m.parse(src, { suppressErrors: true }); }
+    if (!ok) { cleanup(); target.remove(); return; }
+    const { svg } = await m.render("mm" + (++mmId), src);
+    cleanup();
     target.innerHTML = svg; target.classList.add("diagram");
     target.onclick = () => sheet(`<div class="diagram big">${svg}</div>`);
-  } catch { target.innerHTML = `<pre dir="ltr">${esc(code)}</pre>`; }
+  } catch { cleanup(); target.remove(); }
 }
 function enhance(el) {
   el.querySelectorAll("pre.lang-mermaid").forEach(pre => { const d = document.createElement("div"); pre.replaceWith(d); drawMermaid(d, pre.textContent); });
@@ -843,7 +867,7 @@ function aiContext() {
 واجباته وكويزاته من الإي ليرنينج:
 ${list}
 
-لما يفيد، استخدم رسومات: \`\`\`mermaid للمخططات (خطوات، علاقات، هياكل بيانات، خطط دراسة شجرية)، و\`\`\`html لمحاكاة تفاعلية صغيرة (صفحة كاملة بدون مكتبات خارجية، RTL) لما المفهوم بينفهم بالتجربة (Stack, Queue, sorting…).
+لما يفيد، استخدم رسومات: \`\`\`mermaid للمخططات (وكل نص جوّا الأشكال بين تنصيص مثل A[\"نص\"]) (خطوات، علاقات، هياكل بيانات، خطط دراسة شجرية)، و\`\`\`html لمحاكاة تفاعلية صغيرة (صفحة كاملة بدون مكتبات خارجية، RTL) لما المفهوم بينفهم بالتجربة (Stack, Queue, sorting…).
 بتقدر: ترتّبله الأولويات وتعمل خطط دراسة، تشرح أي مفهوم بأمثلة، تقرأ الصور اللي ببعتها (أسئلة، سلايدات، كود، أخطاء)، تراجع شغله وتعطيه ملاحظات، وتساعده بالبرمجة.
 ${AI.langRule()}
 بالواجبات والكويزات اللي عليها علامات: هدفك إنه يفهم ويقدر يحل بنفسه، فاشرح وورجيه الطريقة وأمثلة مشابهة، بدل ما تعطيه نص جاهز ينسخه ويسلّمه.`;
