@@ -363,7 +363,6 @@ routes.study = async (arg) => {
       <div class="small muted" dir="auto">${esc(f.filename)} ${Study.sizeLabel(f.size) ? "· " + Study.sizeLabel(f.size) : ""}</div></div></div>
     <div class="btns" style="margin:14px 0 4px">
       <a class="btn" href="${esc(fileLink)}" target="_blank" rel="noopener" onclick="buzz()">📥 افتح الملف</a>
-      <button class="btn nlm" id="nlm">📓 ادرسه بـ NotebookLM</button>
     </div>
     <div id="ferr"></div>
     ${!AI.ready() ? `<div class="card"><b>حط مفتاح الـ AI أول</b><div class="btns"><button class="btn primary" onclick="go('settings')">الإعدادات</button></div></div>` : `
@@ -391,40 +390,6 @@ routes.study = async (arg) => {
   let doc = null, docErr = null;
   if (!AI.ready()) Study.load(f).then(d => doc = d).catch(() => {});
   // ---- NotebookLM: send the file + a ready prompt
-  let nlmSummary = "";
-  ["summary", "zero", "explain"].forEach(t => KV.get(RES(t)).then(v => { if (v && !nlmSummary) nlmSummary = v; }));
-  const isPhone = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-  document.getElementById("nlm").onclick = async () => {
-    buzz();
-    const prompt = nlmPrompt(f, cname, nlmSummary);
-    if (!isPhone) {
-      // computer: open NotebookLM right away (before anything else, so the browser doesn't block it), copy the prompt, download the file
-      const win = window.open("https://notebooklm.google.com/", "_blank");
-      try { await navigator.clipboard.writeText(prompt); } catch {}
-      const a = document.createElement("a"); a.href = fileLink; a.rel = "noopener"; document.body.appendChild(a); a.click(); a.remove();
-      if (!win) { location.href = "https://notebooklm.google.com/"; return; }
-      sheet(`<div style="text-align:center"><div style="font-size:42px">📓</div><h3 style="margin:6px 0">فتحتلك NotebookLM</h3>
-        <p class="muted" style="margin:0 0 12px">الملف «${esc(f.filename)}» نزل على جهازك، والبرومت منسوخ.<br>بـ NotebookLM: اكبس <b>Create new</b>، اسحب الملف، والصق البرومت بالشات (Ctrl+V).</p>
-        <button class="btn" id="cpy2">📋 انسخ البرومت مرة ثانية</button></div>`);
-      document.getElementById("cpy2").onclick = async e => { try { await navigator.clipboard.writeText(prompt); e.target.textContent = "✓ انسخ"; buzz(); } catch {} };
-      return;
-    }
-    // phone: send the file straight into the NotebookLM app through the share menu
-    try { await navigator.clipboard.writeText(prompt); } catch {}
-    const blob = Study.rawNow(f);
-    if (blob && navigator.canShare) {
-      const file = new File([blob], f.filename || "lecture.pdf", { type: blob.type || f.mime || "application/octet-stream" });
-      const txt = doc && doc.kind === "text" ? new File([doc.data], (f.filename || "file").replace(/\.\w+$/, "") + ".txt", { type: "text/plain" }) : null;
-      let files = [file];
-      if (!navigator.canShare({ files }) && txt) files = [txt];
-      if (navigator.canShare({ files })) {
-        try { await navigator.share({ files, title: f.title, text: prompt }); toast("✓ اختار NotebookLM من القائمة، والبرومت منسوخ", 3500); return; }
-        catch (e) { if (e.name === "AbortError") return; }
-      }
-    }
-    if (!blob) { Study.raw(f); toast("لحظة، الملف بنزل… اكبس كمان مرة", 3000); return; }
-    location.href = "https://notebooklm.google.com/";
-  };
   if (!AI.ready()) return;
 
   // ---- get the file ready in the background right away (from cache = instant)
@@ -462,7 +427,7 @@ routes.study = async (arg) => {
     try {
       if (TEXT_TOOLS.includes(t)) {
         const txt = await Study.ask(d, t, x => { if (my === runId) (t === "sim" ? w.status("build") : w.text(x)); }, null, (kk, m) => w.status(kk, m));
-        KV.set(RES(t), txt); if (["summary", "zero", "explain"].includes(t)) nlmSummary = txt; if (my === runId) show(t, txt, false);
+        KV.set(RES(t), txt); if (my === runId) show(t, txt, false);
         if (t === "zero") prefetch(d);
       } else {
         const txt = await Study.ask(d, t, () => {}, null, (kk, m) => w.status(kk, m)); w.stop();
@@ -698,20 +663,6 @@ function renderPodcast(el, p) {
   window.addEventListener("hashchange", stop, { once: true });
   if (synth) synth.getVoices();
   mark();
-}
-
-function nlmPrompt(f, course, summary) {
-  const pts = summary ? summary.replace(/[#*`]/g, "").split("\n").map(x => x.trim()).filter(Boolean).slice(0, 25).join("\n") : "";
-  return `إنت مدرّسي الخصوصي لمادة "${course}" بالجامعة، وأنا طالب سنة خامسة نظم حاسوبية.
-المصدر: ملف "${f.filename}" (${f.title}).
-
-بدي تدرّسني هاد الملف كامل خطوة بخطوة:
-1. ابدأ بفكرة عامة بسيطة عن الموضوع وليش مهم.
-2. اشرح كل مفهوم بالترتيب اللي بالملف، بلغة بسيطة، مع مثال واقعي، ومثال محلول إذا في معادلات أو خوارزميات.
-3. نبّهني على الأشياء اللي الطلاب بيغلطوا فيها، والنقاط اللي غالباً بتيجي بالامتحان.
-4. بالآخر اعطيني 5 أسئلة امتحان (فهم وتطبيق) مع إجاباتها.
-احكي بالعربي (لهجة أردنية خفيفة)، والمصطلحات التقنية بالإنجليزي، واعتمد على الملف بس وحط مرجع للمكان بالملف.
-${pts ? `\nهاي النقاط الأساسية اللي طلعت من الملف، ركّز عليها بالشرح:\n${pts}\n` : ""}`;
 }
 
 function sheet(html) {
