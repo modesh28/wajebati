@@ -1028,8 +1028,26 @@ function msgEl(m) {
   const d = document.createElement("div");
   d.className = "msg " + (m.role === "user" ? "me" : "ai");
   if (m.role === "user") { d.innerHTML = m.voice ? `<span class="vnote">🎤 <span class="vbars">${"<i></i>".repeat(14)}</span> ${m.voice.secs}ث</span>` : (m.images || []).map(im => `<img src="data:${im.mime};base64,${im.data}">`).join("") + (m.fileNote || []).map(n => `<span class="filechip">📄 ${esc(n)}</span>`).join("") + esc(m.text); }
-  else { d.innerHTML = AI.md(m.text || ""); setTimeout(() => enhance(d), 0); }
+  else { d.innerHTML = AI.md(m.text || ""); setTimeout(() => { enhance(d); msgActions(d, m.text || ""); }, 0); }
   return d;
+}
+// small actions under each answer: copy, listen, share
+function msgActions(el, text) {
+  if (!text || el.querySelector(".mact")) return;
+  const bar = document.createElement("div"); bar.className = "mact";
+  bar.innerHTML = `<button title="نسخ">📋</button><button title="اسمع">🔊</button><button title="شارك">↗</button>`;
+  const [cp, sp, sh] = bar.querySelectorAll("button");
+  cp.onclick = async () => { try { await navigator.clipboard.writeText(text); cp.textContent = "✓"; buzz(); setTimeout(() => cp.textContent = "📋", 1200); } catch {} };
+  let speaking = false;
+  sp.onclick = async () => {
+    if (speaking) { window.stopAiSpeech && stopAiSpeech(); try { speechSynthesis.cancel(); } catch {} speaking = false; sp.textContent = "🔊"; return; }
+    speaking = true; sp.textContent = "⏹"; const clean = text.replace(/```[\s\S]*?```/g, " ").replace(/[#*`>|_]/g, "").slice(0, 1500);
+    const ok = window.playAiSpeech ? await playAiSpeech(clean, "Orus", () => !speaking) : false;
+    if (!ok && speaking) { await new Promise(res => { try { const u = new SpeechSynthesisUtterance(clean); const v = speechSynthesis.getVoices().find(x => /^ar/i.test(x.lang)); if (v) { u.voice = v; u.lang = v.lang; } u.onend = res; u.onerror = res; speechSynthesis.speak(u); } catch { res(); } }); }
+    speaking = false; sp.textContent = "🔊";
+  };
+  sh.onclick = () => window.shareCard ? shareCard(el, "من المساعد") : null;
+  el.appendChild(bar);
 }
 window.newChat = () => { chatMsgs = []; S.set("ai.chat", []); route(); };
 async function sendAI(voice) {
@@ -1062,7 +1080,7 @@ async function sendAI(voice) {
 
       onStatus: (k, m) => w.status(k, m),
       onText: t => { w.text(t); if (window.innerHeight + window.scrollY > document.body.scrollHeight - 200) window.scrollTo(0, document.body.scrollHeight); } });
-    chatMsgs.push({ role: "assistant", text: full }); enhance(bubble);
+    chatMsgs.push({ role: "assistant", text: full }); enhance(bubble); msgActions(bubble, full);
   } catch (e) {
     w.stop();
     if (e.name === "AbortError") { chatMsgs.push({ role: "assistant", text: bubble.textContent || "(وقّفت)" }); }

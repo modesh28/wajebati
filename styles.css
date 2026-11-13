@@ -434,3 +434,7 @@ body.no-tabs .rbar{bottom:calc(10px + var(--safe-b))}
 .qhtml table{max-width:100%;display:block;overflow:auto}
 .qhtml .answer>div label,.qhtml .answer>div .flex-fill{border:0 !important;padding:0 !important;background:none !important;flex:1}
 .qhtml .answer label{border:0;padding:0;background:none}
+.mact{display:flex;gap:4px;margin-top:6px;opacity:.75}
+.mact button{border:0;background:var(--bg);border-radius:8px;padding:3px 8px;cursor:pointer;font-size:13px}
+.mact button:hover{opacity:1;background:var(--accent-soft)}
+.sharewrap .mact{display:none}
