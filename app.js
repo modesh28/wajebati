@@ -152,11 +152,12 @@ routes.review = async () => {
 function go(r) { location.hash = r; }
 async function route() {
   const h = location.hash.slice(1) || "home";
-  if (!Moodle.session) { $tabbar.hidden = true; document.body.classList.add("no-tabs"); return viewLogin(); }
+  if (!Moodle.session && !/^ch-/.test(h)) { $tabbar.hidden = true; document.body.classList.add("no-tabs"); return viewLogin(); }
   $tabbar.hidden = false; document.body.classList.remove("no-tabs");
   const [name, arg] = h.split(/-(.+)/);
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.route === (["course", "assign", "quiz", "study"].includes(name) ? (name === "course" || name === "study" ? "courses" : "home") : name)));
   const fn = routes[name] || routes.home;
+  if (name === "ch") { try { await fn(arg); } catch (e) { handleErr(e); } return; }
   try { await fn(arg); } catch (e) { handleErr(e); }
 }
 function handleErr(e) {
@@ -232,6 +233,7 @@ routes.home = async () => {
       </div>
       <div id="brief"></div>
       ${srsDue().length ? `<button class="card planbtn" onclick="go('review')"><span>🧠</span><div><b>مراجعة اليوم: ${srsDue().length} بطاقة</b><div class="small muted">دقايق مراجعة بتثبّت اللي درسته</div></div></button>` : ""}
+      ${window.homeExtras ? homeExtras() : ""}
       ${notifBanner()}
       <h2>مطلوب منك</h2>
       ${todo.length ? todo.map(itemRow).join("") : data ? `<div class="empty">خلّصت كل إشي 👌</div>` : skel(4)}
@@ -319,7 +321,10 @@ routes.course = async (id) => {
       const order = sessionStorage.getItem("corder-" + id) || "first";
       let n = 0; secs.forEach(sec => sec.files.forEach(x => x.num = ++n));
       const view = order === "first" ? secs : secs.slice().reverse().map(sec => ({ ...sec, files: sec.files.slice().reverse() }));
-      body.innerHTML = (AI.ready() ? `<button class="card planbtn" id="plan"><span>🌳</span><div><b>خطة دراسة المادة</b><div class="small muted">خريطة شجرية: شو تدرس أول وبأي ترتيب</div></div></button><div id="planout"></div>` : "") + `<div class="orderbar"><span class="small muted">${n} ملف · مرتبين زي الإي ليرنينج</span>
+      body.innerHTML = `<div class="quick">
+          <button onclick="go('exam-${id}')"><span>📅</span>وضع الامتحان</button>
+          <button onclick="go('cquiz-${id}')"><span>🎯</span>امتحان تجريبي</button>
+          <button onclick="go('notes-${id}')"><span>📒</span>ملاحظاتي</button></div>` + (AI.ready() ? `<button class="card planbtn" id="plan"><span>🌳</span><div><b>خطة دراسة المادة</b><div class="small muted">خريطة شجرية: شو تدرس أول وبأي ترتيب</div></div></button><div id="planout"></div>` : "") + `<div class="orderbar"><span class="small muted">${n} ملف · مرتبين زي الإي ليرنينج</span>
         <div class="seg mini" id="corder"><button data-o="first" class="${order === "first" ? "on" : ""}">من الأول ⬇</button><button data-o="last" class="${order === "last" ? "on" : ""}">الأحدث ⬆</button></div></div>` + view.map(sec => `<h2 dir="auto">${esc(sec.name)}</h2>` + sec.files.map(f => {
         const k = Study.kindOf(f);
         const click = f.link ? `window.open('${esc(f.url)}','_blank')` : Study.studyable(k) ? `go('study-${id}.${f.cmid}.${f.idx}')` : `openMoodle('/mod/resource/view.php?id=${f.cmid}')`;
@@ -437,7 +442,8 @@ routes.study = async (arg) => {
     } catch (err) { w.stop(); if (my === runId) out.innerHTML = `<div class="err">${esc(/JSON/.test(err.message) ? "ما طلع الجواب مرتب، جرّب مرة ثانية." : err.message)}</div><button class="btn" onclick="this.previousElementSibling.remove();this.remove()">تمام</button>`; }
   }
   function show(t, val, fromCache) {
-    const redo = `<button class="link redo" data-redo="${t}">↻ ${fromCache ? "اعمل واحد جديد" : "جديد"}</button>`;
+    const canShare = ["zero", "summary", "explain", "diagram", "mindmap"].includes(t);
+    const redo = `<div class="redo-row">${canShare ? `<button class="link" data-share>↗ شارك كصورة</button>` : ""}<button class="link redo" data-redo="${t}">↻ ${fromCache ? "اعمل واحد جديد" : "جديد"}</button></div>`;
     if (t === "sim") { out.innerHTML = `<div></div>${redo}`; renderSim(out.firstChild, val); }
     else if (TEXT_TOOLS.includes(t)) { out.innerHTML = `<div class="card msg ai answer">${AI.md(val)}</div>${redo}`; enhance(out.firstChild); }
     else {
@@ -450,6 +456,7 @@ routes.study = async (arg) => {
       else if (t === "podcast") renderPodcast(el, val);
     }
     out.querySelector("[data-redo]").onclick = () => run(t, true);
+    const shb = out.querySelector("[data-share]"); if (shb) shb.onclick = () => shareCard(out.firstElementChild, f.title);
   }
   // get the other tools ready while you read the summary, so they open instantly
   let prefetching = false;
@@ -696,7 +703,7 @@ function renderCards(el, cards, src) {
   draw();
 }
 
-function renderQuiz(el, qs, src) {
+function renderQuiz(el, qs, src, opts = {}) {
   if (!qs.length) { el.innerHTML = `<div class="err">ما طلعت أسئلة، جرّب مرة ثانية.</div>`; return; }
   let i = 0, score = 0;
   const draw = () => {
@@ -704,7 +711,10 @@ function renderQuiz(el, qs, src) {
       const pct = Math.round(score / qs.length * 100);
       if (pct >= 80) confetti();
       el.innerHTML = `<div class="card" style="text-align:center"><div style="font-size:40px">${pct >= 80 ? "🏆" : pct >= 50 ? "👍" : "📚"}</div><b>علامتك ${score} من ${qs.length}</b><p class="muted">${pct >= 80 ? "ممتاز، إنت جاهز!" : pct >= 50 ? "منيح، راجع الأسئلة اللي غلطت فيها." : "بدها مراجعة، جرّب الملخص أو البطاقات."}</p><button class="btn primary" id="again">أعيد الكويز</button></div>`;
-      document.getElementById("again").onclick = () => { i = 0; score = 0; draw(); }; return;
+      document.getElementById("again").onclick = () => { i = 0; score = 0; draw(); };
+      const finalScore = score;
+      if (window.makeChallenge && src !== "تحدّي") { const b = document.createElement("button"); b.className = "btn"; b.style.marginInlineStart = "8px"; b.textContent = "⚔️ تحدّى صاحبك"; b.onclick = () => makeChallenge(qs, finalScore, opts.title || src); document.getElementById("again").after(b); }
+      opts.onDone && opts.onDone(finalScore); return;
     }
     const q = qs[i];
     el.innerHTML = `<div class="card"><div class="small muted">سؤال ${i + 1} من ${qs.length}</div><div class="qtext" dir="auto">${esc(q.q)}</div>
@@ -852,7 +862,7 @@ function findCourse(q) {
     data.courses.map(c => ({ c, score: n.split(" ").filter(w => w.length > 2 && norm(c.name).includes(w)).length })).sort((a, b) => b.score - a.score).filter(x => x.score)[0]?.c || null;
 }
 function aiTools() {
-  return [
+  return [...(window.featureTools ? featureTools() : []),
     { name: "get_my_work", description: "Get the student's upcoming and recent assignments and quizzes from the e-learning, with due dates and whether each is already submitted.", label: () => "بشوف واجباتك…",
       execute: async () => { await refresh(); return { now: new Date().toISOString(), items: upcoming().map(i => ({ type: i.kind, name: i.name, course: i.coursename, due: new Date(i.due * 1000).toISOString(), time_left: i.due > now() ? left(i.due - now()) : "passed", done: !!isDone(i) })) }; } },
     { name: "list_courses", description: "List the student's courses this semester.", label: () => "بشوف موادك…",
@@ -902,7 +912,7 @@ function aiContext() {
 ${list}
 
 لما يفيد، استخدم رسومات: \`\`\`mermaid للمخططات (وكل نص جوّا الأشكال بين تنصيص مثل A[\"نص\"]) (خطوات، علاقات، هياكل بيانات، خطط دراسة شجرية)، و\`\`\`html لمحاكاة تفاعلية صغيرة (صفحة كاملة بدون مكتبات خارجية، RTL) لما المفهوم بينفهم بالتجربة (Stack, Queue, sorting…).
-عندك أدوات: بتقدر تشوف واجباته، وتفتح ملفات أي مادة وتقرأها (list_course_files ثم open_course_file)، وتجيب تفاصيل أي واجب، وتشوف نقاط ضعفه، وتحفظله بطاقات مراجعة. استخدمها لحالك أول ما تفيد، بدون ما تسأله "بدك أفتح الملف؟" — افتح وجاوب. إذا قال "محاضرة ٣" أو "أول ملف" افهمها بالترتيب.
+عندك أدوات: بتقدر تشوف واجباته، وتفتح ملفات أي مادة وتقرأها (list_course_files ثم open_course_file)، وتجيب تفاصيل أي واجب، وتشوف نقاط ضعفه، وتحفظله بطاقات مراجعة، وتقرأ ملاحظاته ومواعيد امتحاناته ووقت دراسته. استخدمها لحالك أول ما تفيد، بدون ما تسأله "بدك أفتح الملف؟" — افتح وجاوب. إذا قال "محاضرة ٣" أو "أول ملف" افهمها بالترتيب.
 ${weakSummary() ? "نقاط ضعفه من الكويزات التدريبية (ركّز عليها لما تشرح):\n" + weakSummary() : ""}
 بتقدر: ترتّبله الأولويات وتعمل خطط دراسة، تشرح أي مفهوم بأمثلة، تقرأ الصور اللي ببعتها (أسئلة، سلايدات، كود، أخطاء)، تراجع شغله وتعطيه ملاحظات، وتساعده بالبرمجة.
 ${AI.langRule()}
@@ -931,6 +941,7 @@ routes.ai = async () => {
       <button class="chip">شو أبلّش فيه هلأ؟</button>
       <button class="chip">اعملي خطة دراسة لهالأسبوع</button>
       <button class="chip">درّسني أول محاضرة بأصعب مادة</button>
+      <button class="chip" onclick="event.stopPropagation();snapSolve()">📸 صوّر سؤال واتحل</button>
       <button class="chip">📎 ارفعلي ملف أو صورة</button></div>` : ""}
     <form class="composer" id="composer">
       <div class="thumbs" id="thumbs"></div>
