@@ -283,7 +283,15 @@ routes.study = async (arg) => {
     document.getElementById("ferr").innerHTML = `<div class="note">⏳ بقرأ الملف…</div>`;
     try { doc = await Study.load(f); document.getElementById("ferr").innerHTML = ""; return doc; }
     catch (e) {
-      document.getElementById("ferr").innerHTML = `<div class="err">${e.code === "fetch" ? "ما قدرت أنزّل الملف من الإي ليرنينج للتطبيق. افتحه من زر «افتح الملف» فوق، وبعدين صوّره أو ارفعه للمساعد ✨." : esc(e.message)}</div>`;
+      if (e.code === "fetch") {
+        document.getElementById("ferr").innerHTML = `<div class="note"><b>موقع الجامعة ما خلّى التطبيق ينزّل الملف لحاله.</b><br>الحل سهل: اكبس «📥 افتح الملف» فوق ونزّله، وبعدين ارفعه من هون 👇
+          <div class="btns"><label class="btn primary">📤 ارفع الملف<input type="file" id="localf" accept=".pdf,.pptx,.docx,.txt,image/*" hidden></label></div></div>`;
+        document.getElementById("localf").onchange = async ev => {
+          const file = ev.target.files[0]; if (!file) return;
+          try { doc = await Study.fromLocal(file); document.getElementById("ferr").innerHTML = `<div class="goodnote">✓ تمام، قريت «${esc(file.name)}». اختار شو بدك 👇</div>`; }
+          catch (er) { document.getElementById("ferr").innerHTML = `<div class="err">${esc(er.message)}</div>`; }
+        };
+      } else document.getElementById("ferr").innerHTML = `<div class="err">${esc(e.message)}</div>`;
       throw e;
     }
   };
@@ -298,9 +306,11 @@ routes.study = async (arg) => {
       const d = await getDoc();
       if (t === "summary" || t === "explain") {
         const box = document.createElement("div"); box.className = "card msg ai answer"; out.innerHTML = ""; out.appendChild(box);
-        await Study.ask(d, t, txt => box.innerHTML = AI.md(txt));
+        const w = waiter(box);
+        await Study.ask(d, t, txt => w.text(txt), null, (k, m) => w.status(k, m));
       } else {
-        const txt = await Study.ask(d, t);
+        const box = out.querySelector(".card"); box.innerHTML = ""; const w = waiter(box);
+        const txt = await Study.ask(d, t, () => {}, null, (k, m) => w.status(k, m)); w.stop();
         const j = Study.parseJSON(txt);
         t === "cards" ? renderCards(out, j.cards || []) : renderQuiz(out, j.questions || []);
       }
@@ -313,10 +323,10 @@ routes.study = async (arg) => {
   document.getElementById("fcomp").onsubmit = async e => {
     e.preventDefault(); const q = finp.value.trim(); if (!q) return; finp.value = "";
     const me = document.createElement("div"); me.className = "msg me"; me.textContent = q; fchat.appendChild(me);
-    const ai = document.createElement("div"); ai.className = "msg ai"; ai.textContent = "…"; fchat.appendChild(ai);
+    const ai = document.createElement("div"); ai.className = "msg ai"; fchat.appendChild(ai); const w = waiter(ai);
     msgs.push({ role: "user", text: q });
-    try { const d = await getDoc(); const a = await Study.ask(d, null, txt => ai.innerHTML = AI.md(txt), msgs.slice(-12)); msgs.push({ role: "assistant", text: a }); }
-    catch (err) { msgs.pop(); ai.innerHTML = `<span style="color:var(--red)">${esc(err.code === "fetch" ? "ما قدرت أقرأ الملف" : err.message)}</span>`; }
+    try { const d = await getDoc(); const a = await Study.ask(d, null, txt => w.text(txt), msgs.slice(-12), (k, m) => w.status(k, m)); msgs.push({ role: "assistant", text: a }); }
+    catch (err) { w.stop(); msgs.pop(); ai.innerHTML = `<span style="color:var(--red)">${esc(err.code === "fetch" ? "ما قدرت أقرأ الملف" : err.message)}</span>`; }
   };
 };
 
@@ -463,6 +473,24 @@ routes.quiz = async (id) => {
   </div>`;
 };
 
+
+/* live "thinking" indicator so you always know it's working */
+function waiter(el) {
+  const t0 = Date.now(); let label = "بفكّر", model = "", started = false;
+  const draw = () => { if (started) return; const sec = Math.floor((Date.now() - t0) / 1000);
+    el.innerHTML = `<div class="typing"><span class="dots"><i></i><i></i><i></i></span><span>${label}… <b>${sec}ث</b></span></div>${model ? `<div class="small muted" dir="ltr" style="text-align:right">${esc(model)}</div>` : ""}`; };
+  draw(); const iv = setInterval(draw, 1000);
+  return {
+    status(kind, m) {
+      if (m) model = m;
+      label = kind === "thinking" ? "بفكّر بالجواب" : kind === "slow" ? "بطيء شوي، بجرّب موديل ثاني كمان" : kind === "read" ? "بقرأ الملف" : "بفكّر";
+      draw();
+    },
+    text(t) { if (!started) { started = true; clearInterval(iv); } el.innerHTML = AI.md(t); },
+    stop() { started = true; clearInterval(iv); }
+  };
+}
+
 /* ---------------- AI ---------------- */
 let chatMsgs = S.get("ai.chat", []); // [{role,text,images:[{mime,data,preview}]}]
 let pendingImgs = [];
@@ -507,12 +535,12 @@ routes.ai = async () => {
       <button class="chip">شو أبلّش فيه هلأ؟</button>
       <button class="chip">اعملي خطة دراسة لهالأسبوع</button>
       <button class="chip">لخّصلي شو عليّ هالشهر</button>
-      <button class="chip">صوّرتلك سؤال، اشرحلي إياه</button></div>` : ""}
+      <button class="chip">📎 ارفعلي ملف أو صورة</button></div>` : ""}
     <form class="composer" id="composer">
       <div class="thumbs" id="thumbs"></div>
       <div class="bar">
-        <button type="button" class="iconbtn" id="attach" title="صورة">📷</button>
-        <input type="file" id="imgin" accept="image/*" multiple hidden>
+        <button type="button" class="iconbtn" id="attach" title="صورة أو ملف">📎</button>
+        <input type="file" id="imgin" accept="image/*,.pdf,.pptx,.docx,.txt" multiple hidden>
         <textarea id="inp" rows="1" placeholder="اسأل أي إشي…" dir="auto" ${ready ? "" : "disabled"}></textarea>
         <button class="iconbtn send" id="send" ${ready ? "" : "disabled"}>↑</button>
       </div>
@@ -528,22 +556,27 @@ routes.ai = async () => {
   inp.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !matchMedia("(pointer:coarse)").matches) { e.preventDefault(); document.getElementById("composer").requestSubmit(); } });
   document.getElementById("attach").onclick = () => document.getElementById("imgin").click();
   document.getElementById("imgin").onchange = async e => {
-    for (const f of e.target.files) { try { pendingImgs.push(await AI.imageFromFile(f)); } catch (err) { toast(err.message); } }
+    for (const f of e.target.files) {
+      try {
+        if (/^image\//.test(f.type)) pendingImgs.push(await AI.imageFromFile(f));
+        else { toast("بقرأ " + f.name + "…"); const d = await Study.fromLocal(f); pendingImgs.push({ file: true, name: f.name, doc: d }); }
+      } catch (err) { toast(err.message, 4000); }
+    }
     e.target.value = ""; drawThumbs();
   };
   const sugg = document.getElementById("sugg");
-  if (sugg) sugg.onclick = e => { const b = e.target.closest(".chip"); if (!b) return; if (b.textContent.includes("صوّرت")) document.getElementById("imgin").click(); else { inp.value = b.textContent; document.getElementById("composer").requestSubmit(); } };
+  if (sugg) sugg.onclick = e => { const b = e.target.closest(".chip"); if (!b) return; if (b.textContent.includes("ارفع")) document.getElementById("imgin").click(); else { inp.value = b.textContent; document.getElementById("composer").requestSubmit(); } };
   document.getElementById("composer").onsubmit = e => { e.preventDefault(); sendAI(); };
   drawThumbs();
 };
 function drawThumbs() {
   const el = document.getElementById("thumbs"); if (!el) return;
-  el.innerHTML = pendingImgs.map((im, i) => `<div><img src="${im.preview}"><button type="button" onclick="pendingImgs.splice(${i},1);drawThumbs()">×</button></div>`).join("");
+  el.innerHTML = pendingImgs.map((im, i) => `<div>${im.file ? `<span class="filechip">📄 ${esc(im.name)}</span>` : `<img src="${im.preview}">`}<button type="button" onclick="pendingImgs.splice(${i},1);drawThumbs()">×</button></div>`).join("");
 }
 function msgEl(m) {
   const d = document.createElement("div");
   d.className = "msg " + (m.role === "user" ? "me" : "ai");
-  if (m.role === "user") { d.innerHTML = (m.images || []).map(im => `<img src="data:${im.mime};base64,${im.data}">`).join("") + esc(m.text); }
+  if (m.role === "user") { d.innerHTML = (m.images || []).map(im => `<img src="data:${im.mime};base64,${im.data}">`).join("") + (m.fileNote || []).map(n => `<span class="filechip">📄 ${esc(n)}</span>`).join("") + esc(m.text); }
   else d.innerHTML = AI.md(m.text || "");
   return d;
 }
@@ -554,30 +587,38 @@ async function sendAI() {
   if (aiBusy) { aiAbort && aiAbort.abort(); return; }
   if (!text && !pendingImgs.length) return;
   const sugg = document.getElementById("sugg"); if (sugg) sugg.remove();
-  const userMsg = { role: "user", text: text || "شو بالصورة؟", images: pendingImgs.map(({ mime, data }) => ({ mime, data })) };
+  const files = pendingImgs.filter(x => x.file), pics = pendingImgs.filter(x => !x.file);
+  const docs = files.filter(x => x.doc.kind === "pdf").map(x => ({ mime: "application/pdf", data: x.doc.data }));
+  const textFiles = files.filter(x => x.doc.kind === "text").map(x => `محتوى الملف "${x.name}":\n<<<\n${x.doc.data}\n>>>\n\n`).join("");
+  const imgFiles = files.filter(x => x.doc.kind === "image").map(x => ({ mime: x.doc.mime, data: x.doc.data }));
+  const userMsg = { role: "user", text: text || (files.length ? "اقرأ الملف ولخّصلي أهم إشي فيه" : "شو بالصورة؟"),
+    images: [...pics.map(({ mime, data }) => ({ mime, data })), ...imgFiles], docs, fileNote: files.map(x => x.name), hidden: textFiles };
   pendingImgs = []; drawThumbs(); inp.value = ""; inp.style.height = "auto";
   chatMsgs.push(userMsg);
   const chat = document.getElementById("chat");
   chat.appendChild(msgEl(userMsg));
-  const bubble = msgEl({ role: "assistant", text: "…" }); chat.appendChild(bubble);
+  const bubble = msgEl({ role: "assistant", text: "" }); chat.appendChild(bubble);
+  const w = waiter(bubble);
   window.scrollTo(0, document.body.scrollHeight);
   aiBusy = true; aiAbort = new AbortController();
   const sendBtn = document.getElementById("send"); sendBtn.textContent = "■";
   try {
     // keep last 20 messages; only the last 2 user turns keep their images (saves cost)
-    const recent = chatMsgs.slice(-20).map((m, i, arr) => ({ ...m, images: i >= arr.length - 4 ? m.images : [] }));
+    const recent = chatMsgs.slice(-20).map((m, i, arr) => ({ ...m, text: (m.hidden || "") + (m.text || ""), images: i >= arr.length - 4 ? m.images : [], docs: i >= arr.length - 4 ? m.docs : [] }));
     if (recent[0] && recent[0].role === "assistant") recent.shift();
     const full = await AI.chat({ system: aiContext(), messages: recent, signal: aiAbort.signal,
       onModel: m => { const el = document.getElementById("aimodel"); if (el && AI.settings().geminiAuto) el.textContent = "Gemini · مجاني · " + m; },
-      onText: t => { bubble.innerHTML = AI.md(t); if (window.innerHeight + window.scrollY > document.body.scrollHeight - 200) window.scrollTo(0, document.body.scrollHeight); } });
+      onStatus: (k, m) => w.status(k, m),
+      onText: t => { w.text(t); if (window.innerHeight + window.scrollY > document.body.scrollHeight - 200) window.scrollTo(0, document.body.scrollHeight); } });
     chatMsgs.push({ role: "assistant", text: full });
   } catch (e) {
+    w.stop();
     if (e.name === "AbortError") { chatMsgs.push({ role: "assistant", text: bubble.textContent || "(وقّفت)" }); }
     else { bubble.innerHTML = `<span style="color:var(--red)">${esc(e.message)}</span>`; chatMsgs.pop(); }
   }
   // don't store old images forever (storage is small)
-  chatMsgs = chatMsgs.slice(-40).map((m, i, arr) => i < arr.length - 6 ? { ...m, images: [] } : m);
-  try { S.set("ai.chat", chatMsgs); } catch {}
+  chatMsgs = chatMsgs.slice(-40).map((m, i, arr) => i < arr.length - 6 ? { ...m, images: [], docs: [], hidden: "" } : m);
+  try { S.set("ai.chat", chatMsgs.map(m => ({ ...m, docs: [], hidden: "" }))); } catch {}
   aiBusy = false; aiAbort = null; if (sendBtn) sendBtn.textContent = "↑";
 }
 

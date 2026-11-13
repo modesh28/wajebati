@@ -154,3 +154,11 @@ h2{font-size:14px;color:var(--muted);font-weight:600;margin:22px 0 10px}
 .goodnote{background:var(--green-bg);color:var(--green);padding:10px 14px;border-radius:12px;font-size:14px;margin:12px 0}
 #why .note{margin:12px 0}
 .hero{background:linear-gradient(135deg,var(--accent),color-mix(in srgb,var(--accent) 70%,#0b3d22));box-shadow:0 8px 24px color-mix(in srgb,var(--accent) 25%,transparent)}
+.typing{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:14px}
+.typing b{font-variant-numeric:tabular-nums;font-weight:600}
+.dots{display:inline-flex;gap:4px}
+.dots i{width:7px;height:7px;border-radius:50%;background:var(--accent);opacity:.3;animation:blink 1.2s infinite}
+.dots i:nth-child(2){animation-delay:.2s}.dots i:nth-child(3){animation-delay:.4s}
+@keyframes blink{0%,80%,100%{opacity:.25;transform:translateY(0)}40%{opacity:1;transform:translateY(-3px)}}
+.filechip{display:inline-block;background:color-mix(in srgb,currentColor 12%,transparent);border-radius:10px;padding:6px 10px;font-size:13px;margin:0 0 6px;max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.composer .thumbs .filechip{background:var(--card);border:1px solid var(--line);height:56px;display:flex;align-items:center}

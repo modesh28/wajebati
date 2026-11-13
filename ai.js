@@ -63,7 +63,7 @@ const AI = (() => {
   }
 
   // messages: [{role:"user"|"assistant", text, images:[{mime,data(base64)}]}]
-  async function chat({ system, messages, onText, onModel, signal, json = false, depth = "fast" }) {
+  async function chat({ system, messages, onText, onModel, onStatus, signal, json = false, depth = "fast" }) {
     const s = settings();
     let full = "";
     if (s.provider === "claude") {
@@ -100,67 +100,93 @@ const AI = (() => {
         const gc = { temperature: json ? 0.4 : 0.7 };
         if (json) gc.responseMimeType = "application/json";
         // fast replies: keep the model's "thinking" short in chat; let it think more for study material
-        if (!noThink[model]) gc.thinkingConfig = { thinkingLevel: depth === "deep" ? "high" : "low" };
+        if (!noThink[model]) gc.thinkingConfig = { thinkingLevel: depth === "deep" ? "medium" : "minimal", includeThoughts: true };
         return JSON.stringify({ ...baseBody, generationConfig: gc });
       };
       const chain = s.geminiAuto ? await freeChain(s.geminiKey) : [s.geminiModel];
       const cool = S.get("ai.cooldown", {});
       const t0 = Date.now();
-      const tryList = chain.filter(m => !(cool[m] > t0));
-      if (!tryList.length) {
+      const queue = chain.filter(m => !(cool[m] > t0));
+      if (!queue.length) {
         const soon = Math.min(...chain.map(m => cool[m] || t0));
         throw new Error(`خلصت كل الموديلات المجانية لهلأ 😅 بترجع تشتغل حوالي الساعة ${new Date(soon).toLocaleTimeString("ar-JO", { hour: "numeric", minute: "2-digit" })}.`);
       }
-      let lastErr = null;
-      for (const model of tryList) {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(s.geminiKey)}`;
-        // each try gets its own timer: if a model doesn't start answering in time, move to the next one
-        const ctl = new AbortController(); const onAbort = () => ctl.abort(); signal && signal.addEventListener("abort", onAbort);
-        let timer = setTimeout(() => ctl.abort("slow"), depth === "deep" ? 45000 : 20000);
-        let res;
-        try { res = await fetch(url, { method: "POST", signal: ctl.signal, headers: { "content-type": "application/json" }, body: makeBody(model) }); }
-        catch (e) { clearTimeout(timer); signal && signal.removeEventListener("abort", onAbort); if (signal && signal.aborted) throw e; lastErr = new Error("الموديل تأخر أو انقطع النت"); continue; }
-        if (res.ok) {
-          clearTimeout(timer); timer = null;
-          let stall = setTimeout(() => ctl.abort("stall"), 30000); // stream froze
-          const bump = () => { clearTimeout(stall); stall = setTimeout(() => ctl.abort("stall"), 30000); };
-          usedModel = model;
-          onModel && onModel(model);
+      // Race: start the best model; if it hasn't started writing within a few seconds,
+      // start the next one too and keep whichever answers first (the other is cancelled).
+      const HEDGE = depth === "deep" ? 8000 : 4000, FIRST_BYTE = depth === "deep" ? 45000 : 15000, STALL = 25000;
+      return await new Promise((resolve, reject) => {
+        let winner = null, done = false, active = 0, lastErr = null, hedgeTimer = null;
+        const attempts = new Set();
+        const finish = (fn, v) => { if (done) return; done = true; clearTimeout(hedgeTimer); attempts.forEach(c => c.abort("lost")); signal && signal.removeEventListener("abort", onUserAbort); fn(v); };
+        const onUserAbort = () => { const e = new Error("aborted"); e.name = "AbortError"; finish(reject, e); };
+        if (signal) { if (signal.aborted) return onUserAbort(); signal.addEventListener("abort", onUserAbort); }
+        const failNext = (err) => {
+          lastErr = err || lastErr;
+          if (done || winner) return;
+          if (queue.length) start();
+          else if (active === 0) finish(reject, new Error(lastErr && lastErr.message === "وصلت الحد"
+            ? "كل الموديلات المجانية وصلت حدها هلأ. استنى دقيقة وجرّب." : "ما زبط: " + (lastErr ? lastErr.message : "")));
+        };
+        const scheduleHedge = () => { clearTimeout(hedgeTimer); hedgeTimer = setTimeout(() => { if (!winner && !done && queue.length) { onStatus && onStatus("slow"); start(); scheduleHedge(); } }, HEDGE); };
+        async function start() {
+          const model = queue.shift(); if (!model) return;
+          active++;
+          const ctl = new AbortController(); attempts.add(ctl);
+          onStatus && onStatus("try", model);
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(s.geminiKey)}`;
+          let timer = setTimeout(() => ctl.abort("slow"), FIRST_BYTE);
+          let mine = "", res;
+          const end = () => { clearTimeout(timer); attempts.delete(ctl); active--; };
+          try { res = await fetch(url, { method: "POST", signal: ctl.signal, headers: { "content-type": "application/json" }, body: makeBody(model) }); }
+          catch (e) { end(); if (!done) failNext(new Error("الموديل تأخر أو انقطع النت")); return; }
+          if (!res.ok) {
+            let j = {}; try { j = await res.json(); } catch {}
+            end();
+            if (done) return;
+            const msg = (j.error && j.error.message) || res.statusText;
+            if (res.status === 401 || (res.status === 400 && /API key/i.test(msg)) || (res.status === 403 && /key/i.test(msg)))
+              return finish(reject, new Error("مفتاح Gemini غلط. راجعه من الإعدادات."));
+            if (res.status === 429) {
+              const daily = /per.?day|PerDay|daily/i.test(JSON.stringify(j));
+              const retry = JSON.stringify(j).match(/"retryDelay":\s*"(\d+)s"/);
+              cool[model] = daily ? nextPacificMidnight() : Date.now() + ((retry ? +retry[1] : 60) + 2) * 1000;
+              S.set("ai.cooldown", cool); return failNext(new Error("وصلت الحد"));
+            }
+            if (res.status === 400 && /thinking/i.test(msg) && !noThink[model]) { noThink[model] = 1; S.set("ai.nothink", noThink); queue.unshift(model); return failNext(); }
+            if (res.status === 404 || (res.status === 400 && /model|not supported|not available/i.test(msg))) {
+              cool[model] = Date.now() + 24 * 3600 * 1000; S.set("ai.cooldown", cool); S.del("ai.freechain"); return failNext(new Error(msg));
+            }
+            if (res.status >= 500) return failNext(new Error("سيرفرات Google مضغوطة"));
+            return finish(reject, new Error("خطأ من Gemini: " + msg));
+          }
+          clearTimeout(timer);
+          timer = setTimeout(() => ctl.abort("slow"), FIRST_BYTE); // still waiting for the first words
+          const bump = () => { clearTimeout(timer); timer = setTimeout(() => ctl.abort("stall"), STALL); };
           try {
             await readSSE(res, ev => {
-              bump();
               const parts = ev.candidates && ev.candidates[0] && ev.candidates[0].content && ev.candidates[0].content.parts;
-              if (parts) for (const p of parts) if (p.text && !p.thought) { full += p.text; onText(full); }
+              if (!parts) return;
+              for (const p of parts) {
+                if (p.thought) { bump(); if (!winner) onStatus && onStatus("thinking", model); continue; }
+                if (!p.text) continue;
+                if (!winner) { winner = model; usedModel = model; clearTimeout(hedgeTimer); attempts.forEach(c => c !== ctl && c.abort("lost")); onModel && onModel(model); }
+                if (winner !== model) return;
+                bump(); mine += p.text; onText(mine);
+              }
             });
-          } catch (e) { if (signal && signal.aborted) throw e; if (full) { clearTimeout(stall); return full + "\n\n_(انقطع الرد)_"; } }
-          finally { clearTimeout(stall); signal && signal.removeEventListener("abort", onAbort); }
-          if (full) return full;
-          lastErr = new Error("الموديل ما رد بإشي"); continue;
+          } catch (e) {
+            end();
+            if (done) return;
+            if (winner === model) return finish(resolve, mine + "\n\n_(انقطع الرد)_");
+            return failNext(new Error("الموديل علّق"));
+          }
+          end();
+          if (done) return;
+          if (winner === model) return finish(resolve, mine);
+          if (!winner) failNext(new Error("الموديل ما رد بإشي"));
         }
-        clearTimeout(timer); signal && signal.removeEventListener("abort", onAbort);
-        let j = {}; try { j = await res.json(); } catch {}
-        const msg = (j.error && j.error.message) || res.statusText;
-        if (res.status === 401 || (res.status === 400 && /API key/i.test(msg)) || res.status === 403 && /key/i.test(msg))
-          throw new Error("مفتاح Gemini غلط. راجعه من الإعدادات.");
-        if (res.status === 429) {
-          // daily limit → wait till quota resets (midnight Pacific ≈ 10:00 Amman); per-minute → short wait
-          const daily = /per.?day|PerDay|daily/i.test(JSON.stringify(j));
-          const retry = JSON.stringify(j).match(/"retryDelay":\s*"(\d+)s"/);
-          cool[model] = daily ? nextPacificMidnight() : Date.now() + ((retry ? +retry[1] : 60) + 2) * 1000;
-          S.set("ai.cooldown", cool); lastErr = new Error("وصلت الحد"); continue;
-        }
-        if (res.status === 400 && /thinking/i.test(msg) && !noThink[model]) {
-          noThink[model] = 1; S.set("ai.nothink", noThink); tryList.splice(tryList.indexOf(model) + 1, 0, model); continue;
-        }
-        if (res.status === 404 || (res.status === 400 && /model|not supported|not available/i.test(msg))) {
-          cool[model] = Date.now() + 24 * 3600 * 1000; S.set("ai.cooldown", cool);
-          S.del("ai.freechain"); lastErr = new Error(msg); continue;
-        }
-        if (res.status >= 500) { lastErr = new Error("سيرفرات Google مضغوطة"); await new Promise(r => setTimeout(r, 600)); continue; }
-        throw new Error("خطأ من Gemini: " + msg);
-      }
-      throw new Error(lastErr && lastErr.message === "وصلت الحد"
-        ? "كل الموديلات المجانية وصلت حدها هلأ. استنى دقيقة وجرّب." : "ما زبط: " + (lastErr ? lastErr.message : ""));
+        start(); scheduleHedge();
+      });
     }
     return full;
   }

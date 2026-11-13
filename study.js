@@ -68,6 +68,14 @@ const Study = (() => {
       if (!r.ok) throw new Error("HTTP " + r.status);
       blob = await r.blob();
     } catch (e) { const err = new Error("cors"); err.code = "fetch"; throw err; }
+    const out = await fromBlob(blob, f, k);
+    fileCache.set(f.url, out);
+    return out;
+  }
+
+  // Turn a downloaded or picked file into something the AI can read
+  async function fromBlob(blob, f, k) {
+    k = k || kindOf(f);
     let out;
     if (k === "pdf") {
       if (blob.size > 18 * 1048576) throw new Error("الملف كبير كثير (أكثر من 18MB) عشان المساعد يقرأه مرة وحدة.");
@@ -95,8 +103,13 @@ const Study = (() => {
     }
     if (out.kind === "text" && out.data.length > 400000) out.data = out.data.slice(0, 400000);
     out.name = f.filename;
-    fileCache.set(f.url, out);
     return out;
+  }
+  function fromLocal(file) {
+    const f = { filename: file.name, mime: file.type || guessMime(file.name) };
+    const k = kindOf(f);
+    if (!studyable(k)) throw new Error("هاد نوع ملف ما بقدر أقرأه. جرّب PDF أو PowerPoint (pptx) أو Word (docx) أو صورة.");
+    return fromBlob(file, f, k);
   }
 
   function attach(doc) {
@@ -122,13 +135,13 @@ const Study = (() => {
     return JSON.parse(raw.slice(start, end + 1));
   }
 
-  async function ask(doc, task, onText, extraMsgs) {
+  async function ask(doc, task, onText, extraMsgs, onStatus) {
     const a = attach(doc);
     const first = { role: "user", text: (a.prefix || "") + (PROMPTS[task] || task), images: a.images, docs: a.docs };
     const messages = extraMsgs ? [ { ...first, text: (a.prefix || "") + "هاد الملف اللي بدنا ندرس منه." }, { role: "assistant", text: "تمام، قريته. اسألني." }, ...extraMsgs ] : [first];
     const json = task === "cards" || task === "quiz";
-    return AI.chat({ system: SYS, messages, onText: onText || (() => {}), json, depth: extraMsgs ? "fast" : "deep" });
+    return AI.chat({ system: SYS, messages, onText: onText || (() => {}), onStatus, json, depth: extraMsgs ? "fast" : "deep" });
   }
 
-  return { courseContents, kindOf, icon, studyable, sizeLabel, load, ask, parseJSON };
+  return { courseContents, kindOf, icon, studyable, sizeLabel, load, fromLocal, ask, parseJSON };
 })();
