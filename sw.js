@@ -1,6 +1,6 @@
 /* Service worker: offline app shell + background checks (Android Chrome, installed app) + notification clicks */
-const CACHE = "wajebati-v2";
-const SHELL = ["./", "index.html", "styles.css", "moodle.js", "ai.js", "app.js", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png"];
+const CACHE = "wajebati-v3";
+const SHELL = ["./", "index.html", "styles.css?v=3", "moodle.js?v=3", "ai.js?v=3", "app.js?v=3", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png"];
 const SITE = "https://s1.ebalqa.courses";
 
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
@@ -11,7 +11,7 @@ self.addEventListener("fetch", e => {
   const url = new URL(e.request.url);
   if (e.request.method !== "GET" || url.origin !== location.origin) return; // never touch Moodle / AI requests
   // network first so updates arrive, cache as fallback for offline
-  e.respondWith(fetch(e.request).then(r => { const copy = r.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); return r; })
+  e.respondWith(fetch(e.request, { cache: "no-cache" }).then(r => { const copy = r.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); return r; })
     .catch(() => caches.match(e.request).then(r => r || caches.match("index.html"))));
 });
 
