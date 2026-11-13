@@ -284,7 +284,7 @@ routes.study = async (arg) => {
     try { doc = await Study.load(f); document.getElementById("ferr").innerHTML = ""; return doc; }
     catch (e) {
       if (e.code === "fetch") {
-        document.getElementById("ferr").innerHTML = `<div class="note"><b>موقع الجامعة ما خلّى التطبيق ينزّل الملف لحاله.</b><br>الحل سهل: اكبس «📥 افتح الملف» فوق ونزّله، وبعدين ارفعه من هون 👇
+        document.getElementById("ferr").innerHTML = `<div class="note"><b>موقع الجامعة ما خلّى التطبيق ينزّل الملف لحاله.</b><br>الحل السريع: اكبس «📥 افتح الملف» فوق ونزّله، وبعدين ارفعه من هون 👇${e.noProxy ? `<br><span class="small">وإذا بدك يفتح لحاله كل مرة، فعّل «فتح الملفات تلقائياً» من ⚙️ الإعدادات.</span>` : ""}
           <div class="btns"><label class="btn primary">📤 ارفع الملف<input type="file" id="localf" accept=".pdf,.pptx,.docx,.txt,image/*" hidden></label></div></div>`;
         document.getElementById("localf").onchange = async ev => {
           const file = ev.target.files[0]; if (!file) return;
@@ -659,10 +659,18 @@ routes.settings = async () => {
       <p class="small muted" style="margin:10px 0 0">🔒 المفاتيح بتنحفظ على هاد الجهاز بس، والمحادثات بتروح مباشرة للشركة اللي اخترتها.</p>
     </div>
 
+    <h2>فتح الملفات تلقائياً</h2>
+    <div class="card">
+      <p class="small muted" style="margin:0 0 10px">موقع الجامعة ما بيسمح للتطبيق ينزّل ملفات المواد لحاله. الحل: «جسر» صغير مجاني على Cloudflare بينزّل ملفات الإي ليرنينج بس ويعطيها للتطبيق. بتعمله مرة وحدة (٥ دقايق) — الخطوات بملف <a href="https://github.com/modesh28/wajebati/blob/main/proxy/README.md" target="_blank" rel="noopener">proxy/README.md</a>.</p>
+      <div class="field"><label>رابط الجسر</label><input class="input" id="proxy" dir="ltr" placeholder="https://wajebati-files.xxxx.workers.dev" value="${esc(S.get("proxyUrl", ""))}"></div>
+      <button class="btn block" id="saveproxy">حفظ</button>
+    </div>
+
     <h2>عن التطبيق</h2>
     <div class="card small muted">واجباتي · نسخة 1.0 · مربوط مباشرة مع s1.ebalqa.courses<br>
       <a href="#" onclick="event.preventDefault();pull&&pull();go('home')">تحديث البيانات</a></div>
   </div>`;
+  document.getElementById("saveproxy").onclick = () => { S.set("proxyUrl", document.getElementById("proxy").value.trim()); toast("انحفظ ✓"); };
   let prov = s.provider;
   document.getElementById("gauto").onchange = e => { document.getElementById("gmwrap").hidden = e.target.checked; };
   async function showChain() {

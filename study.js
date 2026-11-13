@@ -63,11 +63,13 @@ const Study = (() => {
     if (fileCache.has(f.url)) return fileCache.get(f.url);
     const k = kindOf(f);
     let blob;
-    try {
-      const r = await fetch(Moodle.fileUrl(f.url));
-      if (!r.ok) throw new Error("HTTP " + r.status);
-      blob = await r.blob();
-    } catch (e) { const err = new Error("cors"); err.code = "fetch"; throw err; }
+    const direct = Moodle.fileUrl(f.url);
+    const proxy = (Moodle.store.get("proxyUrl", "") || "").trim().replace(/\/$/, "");
+    const tries = proxy ? [`${proxy}/?url=${encodeURIComponent(direct)}`, direct] : [direct];
+    for (const u of tries) {
+      try { const r = await fetch(u); if (r.ok) { blob = await r.blob(); break; } } catch {}
+    }
+    if (!blob) { const err = new Error("cors"); err.code = "fetch"; err.noProxy = !proxy; throw err; }
     const out = await fromBlob(blob, f, k);
     fileCache.set(f.url, out);
     return out;

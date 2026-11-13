@@ -59,7 +59,8 @@ const Moodle = (() => {
   function fileUrl(url) {
     if (!url || !session) return url;
     if (!url.startsWith(SITE)) return url;
-    let u = url.replace("/pluginfile.php", "/webservice/pluginfile.php");
+    let u = url.includes("/webservice/pluginfile.php") ? url : url.replace("/pluginfile.php", "/webservice/pluginfile.php");
+    if (/[?&]token=/.test(u)) return u;
     if (u.includes("/webservice/pluginfile.php") || u.includes("/draftfile.php")) {
       u += (u.includes("?") ? "&" : "?") + "token=" + session.token;
     }
