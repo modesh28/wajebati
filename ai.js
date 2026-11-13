@@ -72,7 +72,7 @@ const AI = (() => {
   }
 
   // messages: [{role:"user"|"assistant", text, images:[{mime,data(base64)}]}]
-  async function chat({ system, messages, onText, onModel, onStatus, signal, json = false, depth = "fast" }) {
+  async function chat({ system, messages, onText, onModel, onStatus, signal, json = false, depth = "fast", tools = null }) {
     const s = settings();
     let full = "";
     if (s.provider === "claude") {
@@ -96,35 +96,32 @@ const AI = (() => {
         if (ev.type === "error") throw new Error(ev.error && ev.error.message);
       });
     } else {
-      const baseBody = ({
-        systemInstruction: { parts: [{ text: system }] },
-        contents: messages.map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [
-          ...(m.docs || []).map(d => ({ inline_data: { mime_type: d.mime, data: d.data } })),
-          ...(m.audio || []).map(a => ({ inline_data: { mime_type: a.mime, data: a.data } })),
-          ...(m.images || []).map(im => ({ inline_data: { mime_type: im.mime, data: im.data } })),
-          { text: m.text || " " }
-        ] }))
-      });
+      const contents = messages.map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [
+        ...(m.docs || []).map(d => ({ inline_data: { mime_type: d.mime, data: d.data } })),
+        ...(m.audio || []).map(a => ({ inline_data: { mime_type: a.mime, data: a.data } })),
+        ...(m.images || []).map(im => ({ inline_data: { mime_type: im.mime, data: im.data } })),
+        { text: m.text || " " }
+      ] }));
+      const toolDecl = tools && tools.length ? [{ functionDeclarations: tools.map(({ name, description, parameters }) => ({ name, description, ...(parameters ? { parameters } : {}) })) }] : null;
       const noThink = S.get("ai.nothink", {}); // models that refuse the thinking setting
       const makeBody = (model) => {
         const gc = { temperature: json ? 0.4 : 0.7 };
         if (json) gc.responseMimeType = "application/json";
         // fast replies: keep the model's "thinking" short in chat; let it think more for study material
-        if (!noThink[model]) gc.thinkingConfig = { thinkingLevel: depth === "deep" ? "medium" : "minimal", includeThoughts: true };
-        return JSON.stringify({ ...baseBody, generationConfig: gc });
+        if (!noThink[model]) gc.thinkingConfig = { thinkingLevel: depth === "deep" ? "medium" : depth === "smart" ? "low" : "minimal", includeThoughts: true };
+        return JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents, generationConfig: gc, ...(toolDecl ? { tools: toolDecl } : {}) });
       };
       const chain = s.geminiAuto ? await freeChain(s.geminiKey) : [s.geminiModel];
       const cool = S.get("ai.cooldown", {});
-      const t0 = Date.now();
-      const queue = chain.filter(m => !(cool[m] > t0));
-      if (!queue.length) {
-        const soon = Math.min(...chain.map(m => cool[m] || t0));
+      if (!chain.some(m => !(cool[m] > Date.now()))) {
+        const soon = Math.min(...chain.map(m => cool[m] || Date.now()));
         throw new Error(`المساعد وصل حده لهلأ 😅 بيرجع يشتغل حوالي الساعة ${new Date(soon).toLocaleTimeString("ar-JO", { hour: "numeric", minute: "2-digit" })}.`);
       }
-      // Race: start the best model; if it hasn't started writing within a few seconds,
+      const HEDGE = depth === "deep" ? 8000 : 4000, FIRST_BYTE = depth === "deep" ? 45000 : 20000, STALL = 25000;
+      // One request. Race: start the best model; if it hasn't started answering within a few seconds,
       // start the next one too and keep whichever answers first (the other is cancelled).
-      const HEDGE = depth === "deep" ? 8000 : 4000, FIRST_BYTE = depth === "deep" ? 45000 : 15000, STALL = 25000;
-      return await new Promise((resolve, reject) => {
+      const round = () => new Promise((resolve, reject) => {
+        const queue = chain.filter(m => !(cool[m] > Date.now()));
         let winner = null, done = false, active = 0, lastErr = null, hedgeTimer = null;
         const attempts = new Set();
         const finish = (fn, v) => { if (done) return; done = true; clearTimeout(hedgeTimer); attempts.forEach(c => c.abort("lost")); signal && signal.removeEventListener("abort", onUserAbort); fn(v); };
@@ -145,7 +142,7 @@ const AI = (() => {
           onStatus && onStatus("try", model);
           const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(s.geminiKey)}`;
           let timer = setTimeout(() => ctl.abort("slow"), FIRST_BYTE);
-          let mine = "", res;
+          let mine = "", res; const calls = [], parts = [];
           const end = () => { clearTimeout(timer); attempts.delete(ctl); active--; };
           try { res = await fetch(url, { method: "POST", signal: ctl.signal, headers: { "content-type": "application/json" }, body: makeBody(model) }); }
           catch (e) { end(); if (!done) failNext(new Error("الموديل تأخر أو انقطع النت")); return; }
@@ -172,31 +169,50 @@ const AI = (() => {
           clearTimeout(timer);
           timer = setTimeout(() => ctl.abort("slow"), FIRST_BYTE); // still waiting for the first words
           const bump = () => { clearTimeout(timer); timer = setTimeout(() => ctl.abort("stall"), STALL); };
+          const claim = () => { if (!winner) { winner = model; usedModel = model; clearTimeout(hedgeTimer); attempts.forEach(c => c !== ctl && c.abort("lost")); onModel && onModel(model); } return winner === model; };
           try {
             await readSSE(res, ev => {
-              const parts = ev.candidates && ev.candidates[0] && ev.candidates[0].content && ev.candidates[0].content.parts;
-              if (!parts) return;
-              for (const p of parts) {
+              const ps = ev.candidates && ev.candidates[0] && ev.candidates[0].content && ev.candidates[0].content.parts;
+              if (!ps) return;
+              for (const p of ps) {
                 if (p.thought) { bump(); if (!winner) onStatus && onStatus("thinking", model); continue; }
-                if (!p.text) continue;
-                if (!winner) { winner = model; usedModel = model; clearTimeout(hedgeTimer); attempts.forEach(c => c !== ctl && c.abort("lost")); onModel && onModel(model); }
-                if (winner !== model) return;
-                bump(); mine += p.text; onText(mine);
+                if (p.functionCall) { if (!claim()) return; bump(); calls.push(p.functionCall); parts.push(p); continue; }
+                if (!p.text) { if (p.thoughtSignature && winner === model) parts.push(p); continue; }
+                if (!claim()) return;
+                bump(); mine += p.text; parts.push(p); onText(mine);
               }
             });
           } catch (e) {
             end();
             if (done) return;
-            if (winner === model) return finish(resolve, mine + "\n\n_(انقطع الرد)_");
+            if (winner === model) return finish(resolve, { text: mine + (calls.length ? "" : "\n\n_(انقطع الرد)_"), calls, parts });
             return failNext(new Error("الموديل علّق"));
           }
           end();
           if (done) return;
-          if (winner === model) return finish(resolve, mine);
+          if (winner === model) return finish(resolve, { text: mine, calls, parts });
           if (!winner) failNext(new Error("الموديل ما رد بإشي"));
         }
         start(); scheduleHedge();
       });
+      // The assistant can use tools (look up your courses, open lecture files, check deadlines…):
+      // run them and continue until it gives the final answer.
+      for (let r = 0; r < 6; r++) {
+        const out = await round();
+        if (!out.calls.length || !tools) return out.text;
+        contents.push({ role: "model", parts: out.parts });
+        const resp = [], extra = [];
+        for (const c of out.calls) {
+          const tool = tools.find(t => t.name === c.name);
+          onStatus && onStatus("tool", tool && tool.label ? tool.label(c.args || {}) : c.name);
+          let res;
+          try { res = tool ? await tool.execute(c.args || {}) : { error: "unknown tool" }; } catch (e) { res = { error: e.message }; }
+          if (res && res.attach) { for (const d of res.attach) extra.push({ inline_data: { mime_type: d.mime, data: d.data } }); delete res.attach; }
+          resp.push({ functionResponse: { ...(c.id ? { id: c.id } : {}), name: c.name, response: res && typeof res === "object" ? res : { result: res } } });
+        }
+        contents.push({ role: "user", parts: [...resp, ...extra] });
+      }
+      return "ما قدرت أكمّل، جرّب تسأل بطريقة ثانية.";
     }
     return full;
   }

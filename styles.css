@@ -8,11 +8,9 @@
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-t: env(safe-area-inset-top, 0px);
 }
-@media (prefers-color-scheme: dark){
-  :root{ --bg:#121210; --card:#1d1c19; --ink:#f1eee7; --muted:#a39d92; --line:#312f2a;
+@media (prefers-color-scheme: dark){html:not([data-theme=light]){ --bg:#121210; --card:#1d1c19; --ink:#f1eee7; --muted:#a39d92; --line:#312f2a;
     --accent:#6fcf97; --accent-ink:#0c1f14; --accent-soft:#1b3125;
-    --green:#6fcf97; --green-bg:#1b3125; --amber:#f2b45c; --amber-bg:#3a2b14; --red:#ff8a80; --red-bg:#3d1c1a; }
-}
+    --green:#6fcf97; --green-bg:#1b3125; --amber:#f2b45c; --amber-bg:#3a2b14; --red:#ff8a80; --red-bg:#3d1c1a; }}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;background:var(--bg);color:var(--ink)}
 body{font-family:"IBM Plex Sans Arabic",system-ui,-apple-system,sans-serif;line-height:1.6;font-size:15px;
@@ -125,7 +123,7 @@ h2{font-size:14px;color:var(--muted);font-weight:600;margin:22px 0 10px}
 
 /* ---------- study ---------- */
 .file-pdf{background:#fde7e4 !important}.file-pptx{background:#fdebd9 !important}.file-docx{background:#e3ecfb !important}
-@media (prefers-color-scheme: dark){.file-pdf{background:#3d1f1c !important}.file-pptx{background:#3a2a18 !important}.file-docx{background:#1c2a40 !important}}
+@media (prefers-color-scheme: dark){html:not([data-theme=light]) .file-pdf{background:#3d1f1c !important}html:not([data-theme=light]) .file-pptx{background:#3a2a18 !important}html:not([data-theme=light]) .file-docx{background:#1c2a40 !important}}
 .filehead{display:flex;gap:14px;align-items:center}
 .bigic{width:62px;height:62px;border-radius:18px;display:grid;place-items:center;font-size:30px;flex:none;background:var(--accent-soft)}
 .tools{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:12px}
@@ -331,3 +329,11 @@ h2{font-size:14px;color:var(--muted);font-weight:600;margin:22px 0 10px}
 .vbtn{border:0;background:none;color:#fff;font-size:18px;width:36px;height:34px;cursor:pointer}
 .vtitle{flex:1;font-size:13px;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .vcount{font-size:12px;opacity:.7;font-variant-numeric:tabular-nums}
+
+/* manual night mode */
+html[data-theme=dark]{ --bg:#121210; --card:#1d1c19; --ink:#f1eee7; --muted:#a39d92; --line:#312f2a;
+    --accent:#6fcf97; --accent-ink:#0c1f14; --accent-soft:#1b3125;
+    --green:#6fcf97; --green-bg:#1b3125; --amber:#f2b45c; --amber-bg:#3a2b14; --red:#ff8a80; --red-bg:#3d1c1a; }
+html[data-theme=dark] .file-pdf{background:#3d1f1c !important}html[data-theme=dark] .file-pptx{background:#3a2a18 !important}html[data-theme=dark] .file-docx{background:#1c2a40 !important}
+html[data-theme=dark]{color-scheme:dark}html[data-theme=light]{color-scheme:light}
+@media (prefers-color-scheme: dark){html:not([data-theme=light]){color-scheme:dark}}
