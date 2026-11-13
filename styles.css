@@ -244,3 +244,21 @@ h2{font-size:14px;color:var(--muted);font-weight:600;margin:22px 0 10px}
 .orderbar{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:6px 0 2px}
 .seg.mini button{padding:5px 10px;font-size:12px}
 .seg.mini button{white-space:nowrap}
+.tools{grid-template-columns:repeat(3,1fr)}
+@media (min-width:560px){.tools{grid-template-columns:repeat(5,1fr)}}
+.tool{position:relative}
+.tool.ready::after{content:"";position:absolute;top:8px;left:8px;width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px var(--green-bg)}
+/* podcast */
+.pod{border-radius:20px;overflow:hidden;background:linear-gradient(160deg,#2a1b4d,#120d24);color:#f2eefb;padding:16px;box-shadow:0 10px 30px rgba(0,0,0,.2)}
+.pod-head{display:flex;gap:12px;align-items:center}
+.pod-art{width:58px;height:58px;border-radius:16px;background:linear-gradient(135deg,#8b5cf6,#ec4899);display:grid;place-items:center;font-size:28px;flex:none}
+.wave{display:flex;gap:3px;justify-content:center;align-items:center;height:46px;margin:14px 0 4px}
+.wave i{width:4px;height:8px;border-radius:3px;background:#c4b5fd;opacity:.5}
+.wave.live i{animation:wv .8s ease-in-out infinite alternate}
+@keyframes wv{from{height:6px;opacity:.4}to{height:38px;opacity:1}}
+.pod .vctrl .iconbtn{color:#f2eefb}
+.pod-lines{max-height:300px;overflow:auto;margin-top:8px;display:flex;flex-direction:column;gap:6px}
+.pl{background:rgba(255,255,255,.06);border-radius:12px;padding:8px 12px;font-size:14px;cursor:pointer;transition:background .2s}
+.pl b{display:block;font-size:12px;opacity:.8}
+.pl.a b{color:#f9a8d4}.pl.b b{color:#93c5fd}
+.pl.on{background:rgba(196,181,253,.25);box-shadow:inset 3px 0 0 #c4b5fd}

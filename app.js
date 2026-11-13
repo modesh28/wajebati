@@ -313,7 +313,8 @@ routes.study = async (arg) => {
     ${!AI.ready() ? `<div class="card"><b>حط مفتاح الـ AI أول</b><div class="btns"><button class="btn primary" onclick="go('settings')">الإعدادات</button></div></div>` : `
     <div class="tools" id="tools">
       <button class="tool on" data-t="summary"><span>📝</span>ملخّص</button>
-      <button class="tool" data-t="video"><span>🎬</span>درس فيديو</button>
+      <button class="tool" data-t="podcast"><span>🎧</span>بودكاست</button>
+      <button class="tool" data-t="video"><span>🎬</span>فيديو</button>
       <button class="tool" data-t="mindmap"><span>🌳</span>خريطة</button>
       <button class="tool" data-t="sim"><span>🎮</span>محاكاة</button>
       <button class="tool" data-t="diagram"><span>📊</span>رسم</button>
@@ -337,33 +338,22 @@ routes.study = async (arg) => {
     buzz();
     const sum = await KV.get(RES("summary")) || await KV.get(RES("explain")) || "";
     const prompt = nlmPrompt(f, cname, sum);
-    let copied = false; try { await navigator.clipboard.writeText(prompt); copied = true; } catch {}
-    // Phone: send the file straight into the NotebookLM app through the share menu
+    try { await navigator.clipboard.writeText(prompt); } catch {}
     const blob = Study.rawNow(f);
     if (blob && navigator.canShare) {
       const file = new File([blob], f.filename || "lecture.pdf", { type: blob.type || f.mime || "application/octet-stream" });
-      // phones only allow sharing some file types (PDF, images, text) — slides/Word go as a text copy if needed
       const txt = doc && doc.kind === "text" ? new File([doc.data], (f.filename || "file").replace(/\.\w+$/, "") + ".txt", { type: "text/plain" }) : null;
       let files = [file];
       if (!navigator.canShare({ files }) && txt) files = [txt];
       if (navigator.canShare({ files })) {
-        try {
-          await navigator.share({ files, title: f.title, text: prompt });
-          toast(copied ? "اختار NotebookLM ✓ والبرومت منسوخ، الصقه هناك" : "اختار NotebookLM من القائمة ✓", 5000);
-          return;
-        } catch (e) { if (e.name === "AbortError") return; }
+        try { await navigator.share({ files, title: f.title, text: prompt }); toast("✓ انبعت لـ NotebookLM", 2500); return; }
+        catch (e) { if (e.name === "AbortError") return; }
       }
     }
-    if (!blob) Study.raw(f); // get it ready for next tap
-    sheet(`<h3 style="margin:0 0 6px">📓 جاهز لـ NotebookLM</h3>
-      <p class="small muted" style="margin:0 0 12px">${blob ? "هاد الجهاز ما بيدعم الإرسال المباشر للتطبيقات. " : "الملف لسا بنزل، جرّب الزر كمان مرة بعد ثواني لترسله مباشرة. "}على التلفون الزر بيرسل الملف لتطبيق NotebookLM مباشرة.</p>
-      <ol class="steps">
-        <li><a class="btn primary" href="${esc(fileLink)}" target="_blank" rel="noopener">📥 نزّل الملف</a></li>
-        <li><a class="btn primary" href="https://notebooklm.google.com/" target="_blank" rel="noopener">افتح NotebookLM ↗</a><div class="small muted">New notebook ← ارفع الملف</div></li>
-        <li><button class="btn ${copied ? "" : "primary"}" id="cpy">${copied ? "✓ البرومت منسوخ" : "📋 انسخ البرومت"}</button><div class="small muted">الصقه بشات NotebookLM</div></li>
-      </ol>
-      <details><summary class="small">شوف البرومت</summary><pre class="promptbox" dir="auto">${esc(prompt)}</pre></details>`);
-    document.getElementById("cpy").onclick = async e => { try { await navigator.clipboard.writeText(prompt); e.target.textContent = "✓ البرومت منسوخ"; buzz(); } catch { toast("انسخه من «شوف البرومت»"); } };
+    // computer: open NotebookLM and download the file in one go
+    window.open("https://notebooklm.google.com/", "_blank");
+    const a = document.createElement("a"); a.href = fileLink; a.target = "_blank"; a.rel = "noopener"; document.body.appendChild(a); a.click(); a.remove();
+    toast("✓ فتحت NotebookLM ونزّلت الملف، والبرومت منسوخ", 3500);
   };
   if (!AI.ready()) return;
 
@@ -394,7 +384,7 @@ routes.study = async (arg) => {
     document.querySelectorAll(".tool").forEach(b => b.classList.toggle("on", b.dataset.t === t));
     const cached = !fresh && await KV.get(RES(t));
     if (my !== runId) return;
-    if (cached) return show(t, cached, true);
+    if (cached) { show(t, cached, true); if (t === "summary") getDoc().then(prefetch).catch(() => {}); return; }
     out.innerHTML = `<div class="card answer"></div>`;
     const box = out.firstChild, w = waiter(box);
     let d; try { w.status("read"); d = await getDoc(); } catch (e) { w.stop(); out.innerHTML = ""; return; }
@@ -403,6 +393,7 @@ routes.study = async (arg) => {
       if (TEXT_TOOLS.includes(t)) {
         const txt = await Study.ask(d, t, x => { if (my === runId) (t === "sim" ? w.status("build") : w.text(x)); }, null, (kk, m) => w.status(kk, m));
         KV.set(RES(t), txt); if (my === runId) show(t, txt, false);
+        if (t === "summary") prefetch(d);
       } else {
         const txt = await Study.ask(d, t, () => {}, null, (kk, m) => w.status(kk, m)); w.stop();
         const j = Study.parseJSON(txt); KV.set(RES(t), j); if (my === runId) show(t, j, false);
@@ -421,9 +412,22 @@ routes.study = async (arg) => {
       else if (t === "quiz") renderQuiz(el, val.questions || []);
       else if (t === "mindmap") renderMindmap(el, val);
       else if (t === "video") renderVideo(el, val);
+      else if (t === "podcast") renderPodcast(el, val);
     }
     out.querySelector("[data-redo]").onclick = () => run(t, true);
   }
+  // get the other tools ready while you read the summary, so they open instantly
+  let prefetching = false;
+  async function prefetch(d) {
+    if (prefetching) return; prefetching = true;
+    for (const t of PREFETCH) {
+      if (!document.body.contains(out)) break;
+      if (await KV.get(RES(t))) continue;
+      try { const txt = await Study.ask(d, t, () => {}, null, null); const j = Study.parseJSON(txt); await KV.set(RES(t), j);
+        const b = document.querySelector(`.tool[data-t="${t}"]`); if (b) b.classList.add("ready"); } catch { break; }
+    }
+  }
+  (async () => { for (const t of [...PREFETCH, "summary", "explain", "video", "podcast", "sim", "diagram"]) if (await KV.get(RES(t))) { const b = document.querySelector(`.tool[data-t="${t}"]`); if (b) b.classList.add("ready"); } })();
   document.getElementById("tools").onclick = e => { const b = e.target.closest(".tool"); if (b) { buzz(); run(b.dataset.t, false); } };
   run("summary", false);
 
@@ -445,6 +449,7 @@ routes.study = async (arg) => {
 };
 
 const TEXT_TOOLS = ["summary", "explain", "sim", "diagram"];
+const PREFETCH = ["mindmap", "cards", "quiz"]; // made quietly in the background after the summary
 
 /* ---------- rich renderers: diagrams, simulations, mind maps, video lessons ---------- */
 let mermaidP = null;
@@ -528,6 +533,39 @@ function renderVideo(el, v) {
   window.addEventListener("hashchange", stopVoice, { once: true });
   if (synth) synth.getVoices();
   showScene();
+}
+
+function renderPodcast(el, p) {
+  const lines = p.lines || []; if (!lines.length) { el.innerHTML = `<div class="err">ما طلعت الحلقة، جرّب «جديد».</div>`; return; }
+  const synth = window.speechSynthesis;
+  const voices = () => (synth ? synth.getVoices() : []).filter(v => /^ar/i.test(v.lang));
+  const hosts = [...new Set(lines.map(l => l.who))];
+  let i = 0, playing = false, timer = null;
+  el.innerHTML = `<div class="pod"><div class="pod-head"><div class="pod-art">🎧</div><div><div class="small" style="opacity:.7">بودكاست واجباتي</div><b dir="auto">${esc(p.title || "")}</b><div class="small" style="opacity:.7">${hosts.map(esc).join(" و")} · ${lines.length} مقطع</div></div></div>
+    <div class="wave" id="wave">${Array.from({ length: 28 }, (_, k) => `<i style="animation-delay:${(k % 7) * 0.12}s"></i>`).join("")}</div>
+    <div class="vctrl"><button class="iconbtn" id="pprev">⏮</button><button class="iconbtn send big" id="pplay">▶</button><button class="iconbtn" id="pnext">⏭</button></div>
+    <div class="pod-lines" id="pl">${lines.map((l, k) => `<div class="pl ${hosts.indexOf(l.who) ? "b" : "a"}" data-k="${k}"><b>${esc(l.who)}</b><span dir="auto">${esc(l.text)}</span></div>`).join("")}</div></div>`;
+  const wave = el.querySelector("#wave"), btn = el.querySelector("#pplay");
+  const mark = () => { el.querySelectorAll(".pl").forEach((d, k) => d.classList.toggle("on", k === i)); const cur = el.querySelector(".pl.on"); if (cur && playing) cur.scrollIntoView({ block: "nearest", behavior: "smooth" }); };
+  const stop = () => { try { synth && synth.cancel(); } catch {} clearTimeout(timer); wave.classList.remove("live"); };
+  const say = () => {
+    stop(); if (!playing) return; mark(); wave.classList.add("live");
+    const l = lines[i], vs = voices(), h = hosts.indexOf(l.who);
+    const next = () => { if (!playing) return; if (i < lines.length - 1) { i++; say(); } else { playing = false; btn.textContent = "↺"; wave.classList.remove("live"); } };
+    if (synth && vs.length) {
+      const u = new SpeechSynthesisUtterance(l.text); u.voice = vs[h % vs.length]; u.lang = u.voice.lang;
+      u.pitch = vs.length > 1 ? 1 : (h ? 0.8 : 1.25); u.rate = 1.07;
+      u.onend = () => { timer = setTimeout(next, 250); }; u.onerror = () => { timer = setTimeout(next, Math.max(2500, l.text.length * 65)); };
+      synth.speak(u);
+    } else timer = setTimeout(next, Math.max(2500, l.text.length * 65));
+  };
+  btn.onclick = () => { buzz(); if (btn.textContent === "↺") { i = 0; } playing = !playing; btn.textContent = playing ? "⏸" : "▶"; playing ? say() : stop(); };
+  el.querySelector("#pnext").onclick = () => { if (i < lines.length - 1) { i++; mark(); if (playing) say(); } };
+  el.querySelector("#pprev").onclick = () => { if (i > 0) { i--; mark(); if (playing) say(); } };
+  el.querySelector("#pl").onclick = e => { const d = e.target.closest(".pl"); if (!d) return; i = +d.dataset.k; playing = true; btn.textContent = "⏸"; say(); };
+  window.addEventListener("hashchange", stop, { once: true });
+  if (synth) synth.getVoices();
+  mark();
 }
 
 function nlmPrompt(f, course, summary) {
