@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14532d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="واجباتي">
+<title>واجباتي</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app"></div>
+  <nav class="tabbar" id="tabbar" hidden>
+    <button class="tab" data-route="home"><span class="ic">🏠</span>الرئيسية</button>
+    <button class="tab" data-route="courses"><span class="ic">📚</span>المواد</button>
+    <button class="tab" data-route="ai"><span class="ic">✨</span>المساعد</button>
+    <button class="tab" data-route="settings"><span class="ic">⚙️</span>الإعدادات</button>
+  </nav>
+  <div id="toast" class="toast" hidden></div>
+  <script src="moodle.js"></script>
+  <script src="ai.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
