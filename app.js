@@ -584,7 +584,7 @@ function renderVideo(el, v) {
   const segs = [...el.querySelectorAll("#vsegs i")];
   let segT0 = 0, segDur = 1, raf = null;
   const tick = () => { if (!playing) return; const p = Math.min(1, (Date.now() - segT0) / segDur); segs.forEach((g, k) => g.style.width = k < i ? "100%" : k === i ? (p * 100) + "%" : "0%"); raf = requestAnimationFrame(tick); };
-  const stopAll = () => { try { synth && synth.cancel(); } catch {} clearTimeout(timer); cancelAnimationFrame(raf); };
+  const stopAll = () => { try { synth && synth.cancel(); } catch {} window.stopAiSpeech && stopAiSpeech(); clearTimeout(timer); cancelAnimationFrame(raf); };
   const draw = () => {
     const sc = scenes[i], th = themes[i % themes.length];
     P.style.setProperty("--c1", th[0]); P.style.setProperty("--c2", th[1]);
@@ -610,6 +610,17 @@ function renderVideo(el, v) {
     // subtitles: show the narration, highlight word by word when the voice reports it
     const words = text.split(/\s+/);
     sub.innerHTML = words.map((w, k) => `<span data-w="${k}">${esc(w)}</span>`).join(" ");
+    const myI = i;
+    if (window.playAiSpeech) {
+      if (scenes[i + 1]) aiSpeech((scenes[i + 1].say || scenes[i + 1].title || "").trim(), "Orus");
+      playAiSpeech(text, "Orus", () => !playing || i !== myI).then(ok => {
+        if (ok) { sub.querySelectorAll("span").forEach(sp => sp.classList.add("on")); if (playing && i === myI) timer = setTimeout(next, 500); }
+        else if (playing && i === myI) browserVoice();
+      });
+      return;
+    }
+    browserVoice();
+    function browserVoice() {
     const v = arVoice();
     if (synth && v) {
       const u = new SpeechSynthesisUtterance(text); u.voice = v; u.lang = v.lang; u.rate = 1.05;
@@ -621,6 +632,7 @@ function renderVideo(el, v) {
     } else {
       words.forEach((_, k) => setTimeout(() => { const sp = sub.querySelector(`[data-w="${k}"]`); sp && sp.classList.add("on"); }, (est * 0.9) * (k / words.length)));
       timer = setTimeout(next, est);
+    }
     }
   };
   const toggle = () => {
@@ -655,11 +667,18 @@ function renderPodcast(el, p) {
     <div class="pod-lines" id="pl">${lines.map((l, k) => `<div class="pl ${hosts.indexOf(l.who) ? "b" : "a"}" data-k="${k}"><b>${esc(l.who)}</b><span dir="auto">${esc(l.text)}</span></div>`).join("")}</div></div>`;
   const wave = el.querySelector("#wave"), btn = el.querySelector("#pplay");
   const mark = () => { el.querySelectorAll(".pl").forEach((d, k) => d.classList.toggle("on", k === i)); const cur = el.querySelector(".pl.on"); if (cur && playing) cur.scrollIntoView({ block: "nearest", behavior: "smooth" }); };
-  const stop = () => { try { synth && synth.cancel(); } catch {} clearTimeout(timer); wave.classList.remove("live"); };
-  const say = () => {
+  const stop = () => { try { synth && synth.cancel(); } catch {} window.stopAiSpeech && stopAiSpeech(); clearTimeout(timer); wave.classList.remove("live"); };
+  const aiVoice = k => (/سارة|ة$|ى$/.test(lines[k].who) ? "Aoede" : "Orus");
+  const say = async () => {
     stop(); if (!playing) return; mark(); wave.classList.add("live");
-    const l = lines[i], vs = voices(), h = hosts.indexOf(l.who);
+    const l = lines[i], vs = voices(), h = hosts.indexOf(l.who), myI = i;
     const next = () => { if (!playing) return; if (i < lines.length - 1) { i++; say(); } else { playing = false; btn.textContent = "↺"; wave.classList.remove("live"); } };
+    if (window.playAiSpeech) {
+      if (lines[i + 1]) aiSpeech(lines[i + 1].text, aiVoice(i + 1)); // get the next line ready
+      const ok = await playAiSpeech(l.text, aiVoice(i), () => !playing || i !== myI);
+      if (ok) { if (playing && i === myI) timer = setTimeout(next, 150); return; }
+      if (!playing || i !== myI) return;
+    }
     if (synth && vs.length) {
       const u = new SpeechSynthesisUtterance(l.text); u.voice = vs[h % vs.length]; u.lang = u.voice.lang;
       u.pitch = vs.length > 1 ? 1 : (h ? 0.8 : 1.25); u.rate = 1.07;
@@ -1104,7 +1123,7 @@ async function voiceNote() {
 }
 
 /* live call: talk, it answers out loud, and listens again */
-window.startCall = async () => {
+window.startCallBasic = async () => {
   if (!AI.ready()) return;
   buzz();
   const ov = document.createElement("div"); ov.className = "call";
