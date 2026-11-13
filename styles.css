@@ -298,3 +298,4 @@ h2{font-size:14px;color:var(--muted);font-weight:600;margin:22px 0 10px}
 .cbtn{width:64px;height:64px;border-radius:50%;border:0;background:rgba(255,255,255,.12);color:#fff;font-size:24px;cursor:pointer}
 .cbtn.end{background:#e5484d}
 #lang button{white-space:nowrap;font-size:13px}
+.toast{bottom:calc(86px + var(--safe-b));font-size:13px;padding:8px 14px;border-radius:999px;box-shadow:0 4px 14px rgba(0,0,0,.2);cursor:pointer;animation:enter .2s}

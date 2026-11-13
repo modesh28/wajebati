@@ -7,7 +7,7 @@ const fmtDate = new Intl.DateTimeFormat("ar-JO", { timeZone: TZ, weekday: "long"
 const fmtShort = new Intl.DateTimeFormat("ar-JO", { timeZone: TZ, weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
 
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-function toast(msg, ms = 2800) { const t = document.getElementById("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, ms); }
+function toast(msg, ms = 1800) { const t = document.getElementById("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, ms); }
 function left(sec) {
   const m = Math.floor(sec / 60), d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60), mi = m % 60;
   if (d > 0) return `${d} يوم${h ? ` و${h} س` : ""}`;
@@ -200,7 +200,7 @@ routes.home = async () => {
     </div>`;
   };
   render(); brief();
-  window.pull = async () => { toast("بحدّث…"); try { await refresh(true); render(); remindDeadlines(); toast("تم التحديث ✓"); } catch (e) { handleErr(e); } };
+  window.pull = async () => { try { await refresh(true); render(); remindDeadlines(); toast("✓"); } catch (e) { handleErr(e); } };
   await refresh();
   if (location.hash.slice(1) === "home" || !location.hash) { render(); brief(); remindDeadlines(); }
 };
@@ -350,10 +350,25 @@ routes.study = async (arg) => {
   let doc = null, docErr = null;
   if (!AI.ready()) Study.load(f).then(d => doc = d).catch(() => {});
   // ---- NotebookLM: send the file + a ready prompt
+  let nlmSummary = "";
+  ["summary", "zero", "explain"].forEach(t => KV.get(RES(t)).then(v => { if (v && !nlmSummary) nlmSummary = v; }));
+  const isPhone = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
   document.getElementById("nlm").onclick = async () => {
     buzz();
-    const sum = await KV.get(RES("summary")) || await KV.get(RES("zero")) || await KV.get(RES("explain")) || "";
-    const prompt = nlmPrompt(f, cname, sum);
+    const prompt = nlmPrompt(f, cname, nlmSummary);
+    if (!isPhone) {
+      // computer: open NotebookLM right away (before anything else, so the browser doesn't block it), copy the prompt, download the file
+      const win = window.open("https://notebooklm.google.com/", "_blank");
+      try { await navigator.clipboard.writeText(prompt); } catch {}
+      const a = document.createElement("a"); a.href = fileLink; a.rel = "noopener"; document.body.appendChild(a); a.click(); a.remove();
+      if (!win) { location.href = "https://notebooklm.google.com/"; return; }
+      sheet(`<div style="text-align:center"><div style="font-size:42px">📓</div><h3 style="margin:6px 0">فتحتلك NotebookLM</h3>
+        <p class="muted" style="margin:0 0 12px">الملف «${esc(f.filename)}» نزل على جهازك، والبرومت منسوخ.<br>بـ NotebookLM: اكبس <b>Create new</b>، اسحب الملف، والصق البرومت بالشات (Ctrl+V).</p>
+        <button class="btn" id="cpy2">📋 انسخ البرومت مرة ثانية</button></div>`);
+      document.getElementById("cpy2").onclick = async e => { try { await navigator.clipboard.writeText(prompt); e.target.textContent = "✓ انسخ"; buzz(); } catch {} };
+      return;
+    }
+    // phone: send the file straight into the NotebookLM app through the share menu
     try { await navigator.clipboard.writeText(prompt); } catch {}
     const blob = Study.rawNow(f);
     if (blob && navigator.canShare) {
@@ -362,14 +377,12 @@ routes.study = async (arg) => {
       let files = [file];
       if (!navigator.canShare({ files }) && txt) files = [txt];
       if (navigator.canShare({ files })) {
-        try { await navigator.share({ files, title: f.title, text: prompt }); toast("✓ انبعت لـ NotebookLM", 2500); return; }
+        try { await navigator.share({ files, title: f.title, text: prompt }); toast("✓ اختار NotebookLM من القائمة، والبرومت منسوخ", 3500); return; }
         catch (e) { if (e.name === "AbortError") return; }
       }
     }
-    // computer: open NotebookLM and download the file in one go
-    window.open("https://notebooklm.google.com/", "_blank");
-    const a = document.createElement("a"); a.href = fileLink; a.target = "_blank"; a.rel = "noopener"; document.body.appendChild(a); a.click(); a.remove();
-    toast("✓ فتحت NotebookLM ونزّلت الملف، والبرومت منسوخ", 3500);
+    if (!blob) { Study.raw(f); toast("لحظة، الملف بنزل… اكبس كمان مرة", 3000); return; }
+    location.href = "https://notebooklm.google.com/";
   };
   if (!AI.ready()) return;
 
@@ -408,7 +421,7 @@ routes.study = async (arg) => {
     try {
       if (TEXT_TOOLS.includes(t)) {
         const txt = await Study.ask(d, t, x => { if (my === runId) (t === "sim" ? w.status("build") : w.text(x)); }, null, (kk, m) => w.status(kk, m));
-        KV.set(RES(t), txt); if (my === runId) show(t, txt, false);
+        KV.set(RES(t), txt); if (["summary", "zero", "explain"].includes(t)) nlmSummary = txt; if (my === runId) show(t, txt, false);
         if (t === "zero") prefetch(d);
       } else {
         const txt = await Study.ask(d, t, () => {}, null, (kk, m) => w.status(kk, m)); w.stop();
@@ -845,7 +858,7 @@ routes.ai = async () => {
     for (const f of e.target.files) {
       try {
         if (/^image\//.test(f.type)) pendingImgs.push(await AI.imageFromFile(f));
-        else { toast("بقرأ " + f.name + "…"); const d = await Study.fromLocal(f); pendingImgs.push({ file: true, name: f.name, doc: d }); }
+        else { const d = await Study.fromLocal(f); pendingImgs.push({ file: true, name: f.name, doc: d }); }
       } catch (err) { toast(err.message, 4000); }
     }
     e.target.value = ""; drawThumbs();
@@ -1093,8 +1106,8 @@ routes.settings = async () => {
     <div class="card small muted">واجباتي · نسخة 1.0 · مربوط مباشرة مع s1.ebalqa.courses<br>
       <a href="#" onclick="event.preventDefault();pull&&pull();go('home')">تحديث البيانات</a></div>
   </div>`;
-  document.getElementById("saveproxy").onclick = () => { S.set("proxyUrl", document.getElementById("proxy").value.trim()); toast("انحفظ ✓"); };
-  document.getElementById("lang").onclick = e => { const b = e.target.closest("button"); if (!b) return; document.querySelectorAll("#lang button").forEach(x => x.classList.toggle("on", x === b)); AI.save({ lang: b.dataset.l }); buzz(); toast("✓ " + b.textContent); };
+  document.getElementById("saveproxy").onclick = () => { S.set("proxyUrl", document.getElementById("proxy").value.trim()); buzz(); };
+  document.getElementById("lang").onclick = e => { const b = e.target.closest("button"); if (!b) return; document.querySelectorAll("#lang button").forEach(x => x.classList.toggle("on", x === b)); AI.save({ lang: b.dataset.l }); buzz(); };
   document.getElementById("gauto").onchange = e => { document.getElementById("gmwrap").hidden = e.target.checked; };
   async function showChain() {
     const el = document.getElementById("gchain"), k = document.getElementById("gk").value.trim();
@@ -1108,7 +1121,7 @@ routes.settings = async () => {
       geminiKey: document.getElementById("gk").value.trim(), geminiModel: document.getElementById("gm").value.trim() || "gemini-3.8-flash",
       geminiAuto: document.getElementById("gauto").checked });
     S.del("ai.freechain"); showChain();
-    toast("انحفظ ✓");
+    buzz(); const b = document.getElementById("saveai"); b.textContent = "✓ انحفظ"; setTimeout(() => b.textContent = "حفظ", 1200);
   };
 };
 window.confirmOut = () => true;
@@ -1132,3 +1145,5 @@ function syncSessionToSW() {
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && Moodle.session) refresh().then(() => { remindDeadlines(); syncSessionToSW(); if ((location.hash.slice(1) || "home") === "home") route(); }).catch(() => {}); });
 
 route().then(syncSessionToSW);
+
+document.getElementById("toast").addEventListener("click", e => e.currentTarget.hidden = true);
