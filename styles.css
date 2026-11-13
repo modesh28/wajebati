@@ -414,3 +414,4 @@ body.no-tabs .rbar{bottom:calc(10px + var(--safe-b))}
 .offline{position:fixed;top:calc(8px + var(--safe-t));left:50%;transform:translateX(-50%);background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber);padding:6px 14px;border-radius:999px;font-size:13px;font-weight:600;z-index:30}
 .tools{grid-template-columns:repeat(3,1fr)}
 .ptr{position:fixed;top:calc(10px + var(--safe-t));left:50%;width:38px;height:38px;border-radius:50%;background:var(--card);border:1px solid var(--line);box-shadow:0 4px 14px rgba(0,0,0,.15);display:grid;place-items:center;font-size:18px;color:var(--accent);z-index:40;transform:translate(-50%,-60px);transition:transform .05s}
+.btn.bad{background:var(--red);border-color:var(--red);color:#fff}

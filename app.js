@@ -234,6 +234,7 @@ routes.home = async () => {
         <div class="stat"><b>${week}</b><span>هالأسبوع</span></div>
         <div class="stat"><b>${quizzes}</b><span>كويزات</span></div>
       </div>
+      ${!AI.ready() ? `<button class="card planbtn" onclick="go('settings')"><span>✨</span><div><b>فعّل المساعد الذكي</b><div class="small muted">حط مفتاح الذكاء الاصطناعي مرة وحدة (دقيقة) وبتشتغل كل أدوات الدراسة</div></div></button>` : ""}
       <div id="brief"></div>
       ${srsDue().length ? `<button class="card planbtn" onclick="go('review')"><span>🧠</span><div><b>مراجعة اليوم: ${srsDue().length} بطاقة</b><div class="small muted">دقايق مراجعة بتثبّت اللي درسته</div></div></button>` : ""}
       ${window.homeExtras ? homeExtras() : ""}
@@ -1241,11 +1242,26 @@ routes.settings = async () => {
       geminiKey: document.getElementById("gk").value.trim(), geminiModel: document.getElementById("gm").value.trim() || "gemini-3.8-flash",
       geminiAuto: document.getElementById("gauto").checked });
     S.del("ai.freechain"); showChain();
-    buzz(); const b = document.getElementById("saveai"); b.textContent = "✓ انحفظ"; setTimeout(() => b.textContent = "حفظ", 1200);
+    buzz(); const b = document.getElementById("saveai"); b.textContent = "⏳ بتأكد من المفتاح…"; b.disabled = true;
+    const key = document.getElementById("gk").value.trim();
+    (async () => {
+      let msg = "✓ انحفظ";
+      if (key) { try { const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=1&key=${encodeURIComponent(key)}`); msg = r.ok ? "✓ المفتاح شغّال" : (r.status === 400 || r.status === 403) ? "✗ المفتاح غلط" : "✓ انحفظ"; } catch { msg = "✓ انحفظ (ما قدرت أتأكد، في مشكلة نت)"; } }
+      S.del("ai.freechain"); b.disabled = false; b.textContent = msg; if (msg.startsWith("✗")) b.classList.add("bad"); else b.classList.remove("bad");
+      setTimeout(() => { b.textContent = "حفظ"; b.classList.remove("bad"); }, 2500);
+    })();
   };
 };
-window.confirmOut = () => true;
-window.logout = () => { Moodle.logout(); S.del("ai.chat"); chatMsgs = []; location.hash = ""; route(); };
+window.confirmOut = () => { try { return window.confirm("متأكد بدك تطلع؟ رح تنمسح بياناتك من هاد الجهاز (الملاحظات، البطاقات، المحادثات)."); } catch { return true; } };
+// logging out wipes everything personal from this device (someone else might log in next), keeps only theme + AI settings
+window.logout = async () => {
+  const keep = { "ai.settings": localStorage.getItem("ai.settings"), theme: localStorage.getItem("theme") };
+  Moodle.logout();
+  try { localStorage.clear(); for (const [k, v] of Object.entries(keep)) if (v !== null) localStorage.setItem(k, v); } catch {}
+  try { indexedDB.deleteDatabase("wajebati"); } catch {}
+  try { (await caches.keys()).filter(k => k === "wajebati-state").forEach(k => caches.delete(k)); } catch {}
+  location.replace(location.pathname); // fresh start, nothing left in memory
+};
 
 /* ---------------- PWA ---------------- */
 if ("serviceWorker" in navigator) {

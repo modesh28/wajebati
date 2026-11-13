@@ -97,7 +97,7 @@ routes.room = async (code) => {
     a.srcObject = stream; a.play().catch(() => setStatus("اكبس أي مكان عشان تسمع الصوت 🔊"));
     try { const ctx = new (window.AudioContext || window.webkitAudioContext)(); const an = ctx.createAnalyser(); an.fftSize = 256; ctx.createMediaStreamSource(stream).connect(an); meters[id] = an; } catch {}
   }
-  setInterval(() => { if (!R.alive) return; const buf = new Uint8Array(128); for (const [id, an] of Object.entries(meters)) { an.getByteFrequencyData(buf); const v = buf.reduce((a, b) => a + b, 0) / buf.length; const el = document.querySelector(`.mem[data-id="${id}"]`); el && el.classList.toggle("talking", v > 18); } }, 200);
+  R.meterIv = setInterval(() => { if (!R.alive) return clearInterval(R.meterIv); const buf = new Uint8Array(128); for (const [id, an] of Object.entries(meters)) { an.getByteFrequencyData(buf); const v = buf.reduce((a, b) => a + b, 0) / buf.length; const el = document.querySelector(`.mem[data-id="${id}"]`); el && el.classList.toggle("talking", v > 18); } }, 200);
 
   /* ---- screen share ---- */
   async function shareScreen() {
