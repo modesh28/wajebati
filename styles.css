@@ -239,3 +239,8 @@ h2{font-size:14px;color:var(--muted);font-weight:600;margin:22px 0 10px}
 .confetti{position:fixed;inset:0;pointer-events:none;z-index:70;overflow:hidden}
 .confetti i{position:absolute;top:-12px;width:9px;height:14px;border-radius:2px;animation:fall linear forwards}
 @keyframes fall{to{transform:translateY(105vh) rotate(720deg)}}
+.item .ic{position:relative}
+.num{position:absolute;bottom:-5px;left:-5px;min-width:19px;height:19px;padding:0 4px;border-radius:10px;background:var(--ink);color:var(--bg);font-size:11px;font-weight:700;display:grid;place-items:center;line-height:1}
+.orderbar{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:6px 0 2px}
+.seg.mini button{padding:5px 10px;font-size:12px}
+.seg.mini button{white-space:nowrap}

@@ -13,6 +13,7 @@ const KV = (() => {
 const Study = (() => {
   const contents = {}; // courseid -> sections
   const fileCache = new Map(); // url -> {kind:"pdf"|"text", data, name, pages}
+  const rawCache = new Map(); // url -> original Blob (for sharing to NotebookLM)
 
   // instant: returns cached list right away (if any) and refreshes in the background
   async function courseContents(courseid, onFresh) {
@@ -81,7 +82,7 @@ const Study = (() => {
   async function load(f) {
     if (fileCache.has(f.url)) return fileCache.get(f.url);
     const saved = await KV.get(fkey(f));
-    if (saved) { fileCache.set(f.url, saved); return saved; }
+    if (saved) { fileCache.set(f.url, saved); KV.get("raw:" + fkey(f)).then(b => b && rawCache.set(f.url, b)); return saved; }
     const k = kindOf(f);
     let blob;
     const direct = Moodle.fileUrl(f.url);
@@ -91,6 +92,7 @@ const Study = (() => {
       try { const r = await fetch(u); if (r.ok) { blob = await r.blob(); break; } } catch {}
     }
     if (!blob) { const err = new Error("cors"); err.code = "fetch"; err.noProxy = !proxy; throw err; }
+    rawCache.set(f.url, blob); KV.set("raw:" + fkey(f), blob);
     const out = await fromBlob(blob, f, k);
     fileCache.set(f.url, out); KV.set(fkey(f), out);
     return out;
@@ -174,6 +176,13 @@ const Study = (() => {
     return AI.chat({ system: SYS, messages, onText: onText || (() => {}), onStatus, json, depth: extraMsgs ? "fast" : "deep" });
   }
 
-  function remember(f, doc) { fileCache.set(f.url, doc); KV.set(fkey(f), doc); }
-  return { PROMPTS, remember, fkey, courseContents, kindOf, icon, studyable, sizeLabel, load, fromLocal, ask, parseJSON };
+  function remember(f, doc, raw) { fileCache.set(f.url, doc); KV.set(fkey(f), doc); if (raw) { rawCache.set(f.url, raw); KV.set("raw:" + fkey(f), raw); } }
+  function rawNow(f) { return rawCache.get(f.url) || null; }
+  async function raw(f) {
+    if (rawCache.has(f.url)) return rawCache.get(f.url);
+    const b = await KV.get("raw:" + fkey(f)); if (b) { rawCache.set(f.url, b); return b; }
+    try { await load(f); } catch {}
+    return rawCache.get(f.url) || null;
+  }
+  return { PROMPTS, raw, rawNow, remember, fkey, courseContents, kindOf, icon, studyable, sizeLabel, load, fromLocal, ask, parseJSON };
 })();

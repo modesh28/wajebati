@@ -260,13 +260,18 @@ routes.course = async (id) => {
     try {
       const secs = await Study.courseContents(id, () => { if (location.hash === "#course-" + id && (sessionStorage.getItem("ctab-" + id) || "files") === "files") showFiles(); });
       if (!secs.length) { body.innerHTML = `<div class="empty">ما في ملفات بهاي المادة لسا</div>`; return; }
-      body.innerHTML = (AI.ready() ? `<button class="card planbtn" id="plan"><span>🌳</span><div><b>خطة دراسة المادة</b><div class="small muted">خريطة شجرية: شو تدرس أول وبأي ترتيب</div></div></button><div id="planout"></div>` : "") + secs.map(sec => `<h2 dir="auto">${esc(sec.name)}</h2>` + sec.files.map(f => {
+      const order = sessionStorage.getItem("corder-" + id) || "first";
+      let n = 0; secs.forEach(sec => sec.files.forEach(x => x.num = ++n));
+      const view = order === "first" ? secs : secs.slice().reverse().map(sec => ({ ...sec, files: sec.files.slice().reverse() }));
+      body.innerHTML = (AI.ready() ? `<button class="card planbtn" id="plan"><span>🌳</span><div><b>خطة دراسة المادة</b><div class="small muted">خريطة شجرية: شو تدرس أول وبأي ترتيب</div></div></button><div id="planout"></div>` : "") + `<div class="orderbar"><span class="small muted">${n} ملف · مرتبين زي الإي ليرنينج</span>
+        <div class="seg mini" id="corder"><button data-o="first" class="${order === "first" ? "on" : ""}">من الأول ⬇</button><button data-o="last" class="${order === "last" ? "on" : ""}">الأحدث ⬆</button></div></div>` + view.map(sec => `<h2 dir="auto">${esc(sec.name)}</h2>` + sec.files.map(f => {
         const k = Study.kindOf(f);
         const click = f.link ? `window.open('${esc(f.url)}','_blank')` : Study.studyable(k) ? `go('study-${id}.${f.cmid}.${f.idx}')` : `openMoodle('/mod/resource/view.php?id=${f.cmid}')`;
-        return `<div class="card item" onclick="${click}"><div class="ic file-${k}">${Study.icon(k)}</div>
+        return `<div class="card item" onclick="${click}"><div class="ic file-${k}">${Study.icon(k)}<span class="num">${f.num}</span></div>
           <div class="body"><div class="title" dir="auto">${esc(f.title)}</div><div class="due" dir="auto">${esc(f.filename)} ${Study.sizeLabel(f.size) ? "· " + Study.sizeLabel(f.size) : ""}</div></div>
           ${Study.studyable(k) ? `<span class="pill ok">ادرس ✨</span>` : ""}</div>`;
       }).join("")).join("");
+      document.getElementById("corder").onclick = e => { const b = e.target.closest("button"); if (!b) return; sessionStorage.setItem("corder-" + id, b.dataset.o); buzz(); showFiles(); };
       const pb = document.getElementById("plan");
       if (pb) pb.onclick = async () => {
         buzz(); const po = document.getElementById("planout"); const key = "plan:" + id + ":" + secs.map(x => x.files.length).join(",");
@@ -325,18 +330,37 @@ routes.study = async (arg) => {
       <button class="iconbtn send" id="fsend">↑</button></div></form>`}
   </div>`;
 
-  // ---- NotebookLM: download the file + copy a ready prompt + open NotebookLM, all in one tap
+  let doc = null, docErr = null;
+  if (!AI.ready()) Study.load(f).then(d => doc = d).catch(() => {});
+  // ---- NotebookLM: send the file + a ready prompt
   document.getElementById("nlm").onclick = async () => {
     buzz();
     const sum = await KV.get(RES("summary")) || await KV.get(RES("explain")) || "";
     const prompt = nlmPrompt(f, cname, sum);
     let copied = false; try { await navigator.clipboard.writeText(prompt); copied = true; } catch {}
+    // Phone: send the file straight into the NotebookLM app through the share menu
+    const blob = Study.rawNow(f);
+    if (blob && navigator.canShare) {
+      const file = new File([blob], f.filename || "lecture.pdf", { type: blob.type || f.mime || "application/octet-stream" });
+      // phones only allow sharing some file types (PDF, images, text) — slides/Word go as a text copy if needed
+      const txt = doc && doc.kind === "text" ? new File([doc.data], (f.filename || "file").replace(/\.\w+$/, "") + ".txt", { type: "text/plain" }) : null;
+      let files = [file];
+      if (!navigator.canShare({ files }) && txt) files = [txt];
+      if (navigator.canShare({ files })) {
+        try {
+          await navigator.share({ files, title: f.title, text: prompt });
+          toast(copied ? "اختار NotebookLM ✓ والبرومت منسوخ، الصقه هناك" : "اختار NotebookLM من القائمة ✓", 5000);
+          return;
+        } catch (e) { if (e.name === "AbortError") return; }
+      }
+    }
+    if (!blob) Study.raw(f); // get it ready for next tap
     sheet(`<h3 style="margin:0 0 6px">📓 جاهز لـ NotebookLM</h3>
-      <p class="small muted" style="margin:0 0 12px">NotebookLM ما بيسمح لأي تطبيق يرفعله ملفات، فجهّزتلك كل إشي:</p>
+      <p class="small muted" style="margin:0 0 12px">${blob ? "هاد الجهاز ما بيدعم الإرسال المباشر للتطبيقات. " : "الملف لسا بنزل، جرّب الزر كمان مرة بعد ثواني لترسله مباشرة. "}على التلفون الزر بيرسل الملف لتطبيق NotebookLM مباشرة.</p>
       <ol class="steps">
         <li><a class="btn primary" href="${esc(fileLink)}" target="_blank" rel="noopener">📥 نزّل الملف</a></li>
-        <li><a class="btn primary" href="https://notebooklm.google.com/" target="_blank" rel="noopener">افتح NotebookLM ↗</a><div class="small muted">New notebook ← ارفع الملف اللي نزّلته</div></li>
-        <li><button class="btn ${copied ? "" : "primary"}" id="cpy">${copied ? "✓ البرومت منسوخ" : "📋 انسخ البرومت"}</button><div class="small muted">الصقه بالشات تبع NotebookLM${sum ? " (فيه ملخص التطبيق عشان يركّز أكثر)" : ""}</div></li>
+        <li><a class="btn primary" href="https://notebooklm.google.com/" target="_blank" rel="noopener">افتح NotebookLM ↗</a><div class="small muted">New notebook ← ارفع الملف</div></li>
+        <li><button class="btn ${copied ? "" : "primary"}" id="cpy">${copied ? "✓ البرومت منسوخ" : "📋 انسخ البرومت"}</button><div class="small muted">الصقه بشات NotebookLM</div></li>
       </ol>
       <details><summary class="small">شوف البرومت</summary><pre class="promptbox" dir="auto">${esc(prompt)}</pre></details>`);
     document.getElementById("cpy").onclick = async e => { try { await navigator.clipboard.writeText(prompt); e.target.textContent = "✓ البرومت منسوخ"; buzz(); } catch { toast("انسخه من «شوف البرومت»"); } };
@@ -345,7 +369,6 @@ routes.study = async (arg) => {
 
   // ---- get the file ready in the background right away (from cache = instant)
   const state = document.getElementById("docstate");
-  let doc = null, docErr = null;
   const docP = Study.load(f).then(d => { doc = d; state.className = "pill ok"; state.textContent = "✓ الملف جاهز"; return d; })
     .catch(e => { docErr = e; state.className = "pill urgent"; state.textContent = "⚠️ ما نزل"; showFetchErr(e); throw e; });
   docP.catch(() => {});
@@ -356,7 +379,7 @@ routes.study = async (arg) => {
         <div class="btns"><label class="btn primary">📤 ارفع الملف<input type="file" id="localf" accept=".pdf,.pptx,.docx,.txt,image/*" hidden></label></div></div>`;
       document.getElementById("localf").onchange = async ev => {
         const file = ev.target.files[0]; if (!file) return;
-        try { doc = await Study.fromLocal(file); Study.remember(f, doc); docErr = null; el.innerHTML = ""; state.className = "pill ok"; state.textContent = "✓ الملف جاهز"; buzz(); run(current, false); }
+        try { doc = await Study.fromLocal(file); Study.remember(f, doc, file); docErr = null; el.innerHTML = ""; state.className = "pill ok"; state.textContent = "✓ الملف جاهز"; buzz(); run(current, false); }
         catch (er) { el.innerHTML = `<div class="err">${esc(er.message)}</div>`; }
       };
     } else el.innerHTML = `<div class="err">${esc(e.message)}</div>`;
