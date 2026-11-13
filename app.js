@@ -883,7 +883,7 @@ function waiter(el) {
     status(kind, m) {
       if (m) model = m;
       if (kind === "tool") { label = m || "بشتغل"; model = ""; draw(); return; }
-      label = kind === "thinking" ? "بفكّر بالجواب" : kind === "slow" ? "لحظة، بسرّعلك الجواب" : kind === "read" ? "بقرأ الملف" : kind === "build" ? "ببني المحاكاة" : "بفكّر";
+      label = kind === "thinking" ? "بفكّر بالجواب" : kind === "slow" ? "لحظة، بسرّعلك الجواب" : kind === "retry" ? "النت ضعيف، بعيد المحاولة" : kind === "read" ? "بقرأ الملف" : kind === "build" ? "ببني المحاكاة" : "بفكّر";
       draw();
     },
     text(t) { if (!started) { started = true; clearInterval(iv); } el.innerHTML = AI.md(t); },
@@ -1062,7 +1062,11 @@ async function sendAI(voice) {
   } catch (e) {
     w.stop();
     if (e.name === "AbortError") { chatMsgs.push({ role: "assistant", text: bubble.textContent || "(وقّفت)" }); }
-    else { bubble.innerHTML = `<span style="color:var(--red)">${esc(e.message)}</span>`; chatMsgs.pop(); }
+    else {
+      bubble.innerHTML = `<span style="color:var(--red)">${esc(e.message)}</span> <button class="link" id="retrybtn">↻ جرّب كمان مرة</button>`;
+      const failed = chatMsgs.pop();
+      const rb = document.getElementById("retrybtn"); if (rb) rb.onclick = () => { bubble.previousElementSibling && bubble.previousElementSibling.remove(); bubble.remove(); pendingImgs = []; const inp2 = document.getElementById("inp"); if (failed.voice) return; inp2.value = failed.text; sendAI(); };
+    }
   }
   // don't store old images forever (storage is small)
   chatMsgs = chatMsgs.slice(-40).map((m, i, arr) => i < arr.length - 6 ? { ...m, images: [], docs: [], hidden: "" } : m);

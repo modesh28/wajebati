@@ -117,11 +117,17 @@ const AI = (() => {
         const soon = Math.min(...chain.map(m => cool[m] || Date.now()));
         throw new Error(`المساعد وصل حده لهلأ 😅 بيرجع يشتغل حوالي الساعة ${new Date(soon).toLocaleTimeString("ar-JO", { hour: "numeric", minute: "2-digit" })}.`);
       }
-      const HEDGE = depth === "deep" ? 8000 : 4000, FIRST_BYTE = depth === "deep" ? 45000 : 20000, STALL = 25000;
+      const STALL = 30000;
+      // timeouts grow with the size of what we send (a big PDF on mobile data takes time to upload)
+      const sizeOf = () => contents.reduce((a, c) => a + c.parts.reduce((b, p) => b + (p.inline_data ? p.inline_data.data.length : (p.text || "").length), 0), 0);
       // One request. Race: start the best model; if it hasn't started answering within a few seconds,
       // start the next one too and keep whichever answers first (the other is cancelled).
       const round = () => new Promise((resolve, reject) => {
+        const bytes = sizeOf(), big = bytes > 1500000;
+        const HEDGE = big ? 25000 + bytes / 60 : depth === "deep" ? 8000 : 4500; // don't upload a big file twice at once
+        const FIRST_BYTE = (depth === "deep" ? 45000 : 25000) + bytes / 40;      // ~40KB/s worst-case upload
         const queue = chain.filter(m => !(cool[m] > Date.now()));
+        const retried = new Set();
         let winner = null, done = false, active = 0, lastErr = null, hedgeTimer = null;
         const attempts = new Set();
         const finish = (fn, v) => { if (done) return; done = true; clearTimeout(hedgeTimer); attempts.forEach(c => c.abort("lost")); signal && signal.removeEventListener("abort", onUserAbort); fn(v); };
@@ -131,8 +137,8 @@ const AI = (() => {
           lastErr = err || lastErr;
           if (done || winner) return;
           if (queue.length) start();
-          else if (active === 0) finish(reject, new Error(lastErr && lastErr.message === "وصلت الحد"
-            ? "المساعد مضغوط هلأ، جرّب كمان دقيقة." : "ما زبط: " + (lastErr ? lastErr.message : "")));
+          else if (active === 0) finish(reject, new Error(lastErr && lastErr.message === "وصلت الحد" ? "المساعد مضغوط هلأ، جرّب كمان دقيقة."
+            : lastErr && /النت/.test(lastErr.message) ? (navigator.onLine === false ? "إنت مش متصل بالنت 📶" : "النت ضعيف هلأ 📶 جرّب كمان مرة") : "ما زبط: " + (lastErr ? lastErr.message : "")));
         };
         const scheduleHedge = () => { clearTimeout(hedgeTimer); hedgeTimer = setTimeout(() => { if (!winner && !done && queue.length) { onStatus && onStatus("slow"); start(); scheduleHedge(); } }, HEDGE); };
         async function start() {
@@ -145,7 +151,12 @@ const AI = (() => {
           let mine = "", res; const calls = [], parts = [];
           const end = () => { clearTimeout(timer); attempts.delete(ctl); active--; };
           try { res = await fetch(url, { method: "POST", signal: ctl.signal, headers: { "content-type": "application/json" }, body: makeBody(model) }); }
-          catch (e) { end(); if (!done) failNext(new Error("الموديل تأخر أو انقطع النت")); return; }
+          catch (e) {
+            end(); if (done) return;
+            // a network hiccup: try the same model once more before moving on
+            if (!retried.has(model) && ctl.signal.reason !== "lost") { retried.add(model); queue.unshift(model); onStatus && onStatus("retry"); await new Promise(r => setTimeout(r, 800)); }
+            return failNext(new Error(ctl.signal.reason === "slow" ? "النت بطيء" : "انقطع النت"));
+          }
           if (!res.ok) {
             let j = {}; try { j = await res.json(); } catch {}
             end();
