@@ -421,3 +421,16 @@ body.no-tabs .rbar{bottom:calc(10px + var(--safe-b))}
 .cl.ai{align-self:flex-end;background:rgba(111,207,151,.22)}
 .call .orb{transition:transform .08s linear}
 .console .tbl{background:transparent;margin:6px 0}.console .tbl th{background:#1b3125;color:#6fcf97}.console .tbl td,.console .tbl th{border-color:#2a3a32}
+/* quiz attempt */
+.qcard .qhtml{font-size:15px;overflow-wrap:anywhere}
+.qhtml img{max-width:100%;height:auto}
+.qhtml .qtext{font-weight:600;margin:6px 0 10px}
+.qhtml .answer{display:flex;flex-direction:column;gap:8px}
+.qhtml .qopt,.qhtml .answer>div,.qhtml .answer label{display:flex;align-items:center;gap:10px;border:1.5px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer;background:var(--bg)}
+.qhtml .answer>div:has(input:checked){border-color:var(--accent);background:var(--accent-soft)}
+.qhtml input[type=radio],.qhtml input[type=checkbox]{width:20px;height:20px;accent-color:var(--accent);flex:none}
+.qhtml input[type=text],.qhtml textarea,.qhtml select{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink);font:inherit}
+.qhtml .prompt,.qhtml .accesshide,.qhtml .sr-only,.qhtml .visually-hidden{position:absolute !important;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.qhtml table{max-width:100%;display:block;overflow:auto}
+.qhtml .answer>div label,.qhtml .answer>div .flex-fill{border:0 !important;padding:0 !important;background:none !important;flex:1}
+.qhtml .answer label{border:0;padding:0;background:none}

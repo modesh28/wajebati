@@ -866,9 +866,10 @@ routes.quiz = async (id) => {
     ${q.intro ? `<h2>التعليمات</h2><div class="card intro" dir="auto">${Moodle.rewriteHtml(q.intro)}</div>` : ""}
     ${access && access.accessrules && access.accessrules.length ? `<div class="note">${access.accessrules.map(esc).join("<br>")}</div>` : ""}
     <div class="btns">
-      <button class="btn primary" onclick="openMoodle('/mod/quiz/view.php?id=${q.cmid}')">${opened && !closed ? "ادخل الكويز ↗" : "افتح بالإي ليرنينج ↗"}</button>
+      ${opened && !closed && (!q.attempts || finished < q.attempts || attempts.some(a => a.state === "inprogress")) ? `<button class="btn primary" onclick="go('qattempt-${q.id}')">${attempts.some(a => a.state === "inprogress") ? "▶ كمّل الكويز" : "▶ ابدأ الكويز هون"}</button>` : ""}
+      <button class="btn" onclick="openMoodle('/mod/quiz/view.php?id=${q.cmid}')">افتح بالإي ليرنينج ↗</button>
     </div>
-    <p class="small muted">الكويز بيفتح بالإي ليرنينج وإنت مسجّل دخول تلقائياً. حل الكويز من جوّا التطبيق جاي بالتحديث الجاي.</p>
+    <p class="small muted">بتحل الكويز من جوّا التطبيق، وإجاباتك بتنحفظ على الإي ليرنينج مباشرة. إذا في نوع سؤال ما بيظهر منيح، افتحه بالإي ليرنينج.</p>
   </div>`;
 };
 

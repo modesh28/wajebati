@@ -236,6 +236,81 @@ OUTPUT:
   document.getElementById("cch").onclick = () => { buzz(); askAI(`اعطيني تمرين برمجة واحد بمستوى طالب سنة خامسة نظم حاسوبية${data ? " ومرتبط بموادي: " + data.courses.map(c => c.name).join("، ") : ""}: المطلوب، مثال input/output، وتلميح. لا تعطيني الحل. وحط كود بداية (starter code) فاضي أكمّله.`); };
 };
 
+/* ======================= take a quiz inside the app ======================= */
+routes.qattempt = async (quizid) => {
+  await ensureData();
+  const q = data.items.find(i => i.kind === "quiz" && i.id == quizid);
+  $app.innerHTML = `<div class="page enter">${skel(3)}</div>`;
+  const fail = (msg) => { $app.innerHTML = `<div class="page"><div class="top"><button class="back" onclick="history.back()">→ رجوع</button></div><div class="err">${esc(msg)}</div>
+    ${q ? `<button class="btn primary" onclick="openMoodle('/mod/quiz/view.php?id=${q.cmid}')">افتح الكويز بالإي ليرنينج ↗</button>` : ""}</div>`; };
+  let attempt;
+  try {
+    const un = await Moodle.call("mod_quiz_get_user_attempts", { quizid, status: "unfinished" });
+    attempt = (un.attempts || [])[0];
+    if (!attempt) attempt = (await Moodle.call("mod_quiz_start_attempt", { quizid })).attempt;
+  } catch (e) { return fail(/password|preflight/i.test(e.message) ? "هاد الكويز بده كلمة سر، افتحه بالإي ليرنينج." : "ما قدرت أبلّش الكويز: " + e.message); }
+  const limit = q && q.timelimit ? q.timelimit : 0, endAt = limit ? (attempt.timestart + limit) * 1000 : (q && q.due ? q.due * 1000 : 0);
+  let page = attempt.currentpage || 0, total = null, timerIv = null, busy = false;
+  const collect = () => {
+    const out = []; const seen = new Set();
+    $app.querySelectorAll(".qform input, .qform select, .qform textarea").forEach(el => {
+      if (!el.name) return;
+      if ((el.type === "radio" || el.type === "checkbox") && !el.checked) { if (el.type === "checkbox" && !seen.has(el.name)) { /* unchecked box: moodle expects 0 via hidden input */ } return; }
+      out.push({ name: el.name, value: el.value }); seen.add(el.name);
+    });
+    return out;
+  };
+  const answeredCount = () => { const names = new Set(); $app.querySelectorAll(".qform .que").forEach(qq => { const a = [...qq.querySelectorAll("input[type=radio]:checked, input[type=checkbox]:checked, input[type=text], select, textarea")].some(el => (el.type === "radio" || el.type === "checkbox") ? true : el.value.trim() && el.value !== "0" && el.value !== ""); if (a) names.add(qq); }); return names.size; };
+  async function show(p) {
+    busy = true;
+    let d; try { d = await Moodle.call("mod_quiz_get_attempt_data", { attemptid: attempt.id, page: p }); } catch (e) { busy = false; return fail("ما قدرت أجيب الأسئلة: " + e.message); }
+    page = p; busy = false;
+    const qs = d.questions || [];
+    $app.innerHTML = `<div class="page enter">
+      <div class="top"><button class="back" id="qx">→ رجوع</button>${endAt ? `<span class="pill soon" id="qtime"></span>` : ""}</div>
+      <div class="small muted" dir="auto">${esc(q ? q.coursename : "")}</div><h1 style="margin:0 0 12px;font-size:20px" dir="auto">${esc(q ? q.name : "كويز")}</h1>
+      <form class="qform" onsubmit="return false">${qs.map(x => `<div class="card qcard"><div class="small muted">سؤال ${x.number || ""}${x.maxmark ? ` · ${x.maxmark} علامة` : ""}</div><div class="qhtml">${Moodle.rewriteHtml(x.html)}</div></div>`).join("")}</form>
+      <div class="btns" style="justify-content:space-between">
+        ${p > 0 ? `<button class="btn" id="qprev">→ السابق</button>` : "<span></span>"}
+        ${d.nextpage !== -1 ? `<button class="btn primary" id="qnext">التالي ←</button>` : `<button class="btn primary" id="qfin">✓ سلّم الكويز</button>`}
+      </div>
+      <p class="small muted">إجاباتك بتنحفظ كل ما تنقل لصفحة ثانية.</p></div>`;
+    // tidy Moodle's question markup
+    $app.querySelectorAll(".qhtml .info, .qhtml .questionflag, .qhtml .im-controls, .qhtml script, .qhtml .accesshide.question_number").forEach(n => n.remove());
+    $app.querySelectorAll(".qhtml p, .qhtml label, .qhtml .qtext, .qhtml li, .qhtml td").forEach(n => n.dir = "auto");
+    $app.querySelectorAll(".qhtml input[type=radio], .qhtml input[type=checkbox]").forEach(i => { const lab = i.closest("div,label"); lab && lab.classList.add("qopt"); });
+    const unsupported = $app.querySelectorAll(".qhtml .ddarea, .qhtml .drags, .qhtml .ddmarker, .qhtml .ddwtos").length;
+    if (unsupported) $app.querySelector(".qform").insertAdjacentHTML("afterbegin", `<div class="note">في سؤال سحب وإفلات ما بيشتغل هون. حلّه من الإي ليرنينج.</div>`);
+    const save = async (finish) => { const dataArr = collect(); return finish ? Moodle.call("mod_quiz_process_attempt", { attemptid: attempt.id, data: dataArr, finishattempt: 1, timeup: 0 }) : Moodle.call("mod_quiz_save_attempt", { attemptid: attempt.id, data: dataArr }); };
+    const nav = async (np) => { if (busy) return; busy = true; try { await save(false); } catch {} busy = false; show(np); };
+    const prev = document.getElementById("qprev"); if (prev) prev.onclick = () => nav(p - 1);
+    const next = document.getElementById("qnext"); if (next) next.onclick = () => nav(d.nextpage);
+    const fin = document.getElementById("qfin");
+    if (fin) fin.onclick = () => {
+      sheet(`<h3 style="margin:0 0 8px">تسليم الكويز؟</h3><p class="muted">بعد التسليم ما بتقدر تغيّر إجاباتك.</p><button class="btn primary block" id="qyes">✓ سلّم</button>`);
+      document.getElementById("qyes").onclick = async () => { document.querySelector(".sheet-wrap").remove(); finish(false); };
+    };
+    document.getElementById("qx").onclick = async () => { try { await save(false); } catch {} clearInterval(timerIv); history.back(); };
+    // countdown; submits by itself when time runs out
+    clearInterval(timerIv);
+    if (endAt) { const tick = () => { const el = document.getElementById("qtime"); if (!el) return clearInterval(timerIv); const l = Math.floor((endAt - Date.now()) / 1000);
+      if (l <= 0) { clearInterval(timerIv); finish(true); return; } el.textContent = `⏱️ ${Math.floor(l / 60)}:${String(l % 60).padStart(2, "0")}`; el.className = "pill " + (l < 120 ? "urgent" : "soon"); }; tick(); timerIv = setInterval(tick, 1000); }
+    async function finish(timeup) {
+      clearInterval(timerIv); $app.querySelector(".page").insertAdjacentHTML("beforeend", `<div class="card answer"></div>`); const w = waiter($app.querySelector(".card.answer")); w.status("tool", "بسلّم الكويز…");
+      try {
+        await Moodle.call("mod_quiz_process_attempt", { attemptid: attempt.id, data: collect(), finishattempt: 1, timeup: timeup ? 1 : 0 });
+        w.stop(); let grade = "";
+        try { const r = await Moodle.call("mod_quiz_get_attempt_review", { attemptid: attempt.id }); if (r.grade !== undefined && r.grade !== null) grade = `${r.grade}`; } catch {}
+        $app.innerHTML = `<div class="page enter"><div class="card" style="text-align:center"><div style="font-size:46px">✅</div><h2 style="color:var(--ink);font-size:20px;margin:6px 0">تم تسليم الكويز</h2>
+          ${grade ? `<p style="font-size:18px">علامتك: <b>${esc(grade)}</b>${q && q.grade ? "" : ""}</p>` : `<p class="muted">العلامة بتطلع لما الدكتور يفتحها.</p>`}
+          <button class="btn primary" onclick="go('quiz-${quizid}')">رجوع للكويز</button></div></div>`;
+        buzz(); if (grade) confetti(); refresh(true).catch(() => {});
+      } catch (e) { w.stop(); $app.querySelector(".card.answer").innerHTML = `<div class="err">ما زبط التسليم: ${esc(e.message)}</div>`; }
+    }
+  }
+  show(page);
+};
+
 /* ======================= hooks ======================= */
 window.featureTools2 = () => [
   { name: "get_grades", description: "The student's grades (marks and teacher feedback) per course from the e-learning.", label: () => "بشوف علاماتك…",
@@ -251,4 +326,4 @@ window.featureTools2 = () => [
 // background: check grades when the app opens (every 30 min at most)
 setTimeout(() => { if (Moodle.session) ensureData().then(() => checkGrades()).catch(() => {}); }, 4000);
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && Moodle.session) checkGrades().catch(() => {}); });
-if (/^#(grades|search|code)/.test(location.hash)) route();
+if (/^#(grades|search|code|qattempt)/.test(location.hash)) route();
