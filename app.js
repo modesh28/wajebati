@@ -916,6 +916,7 @@ ${list}
 ${weakSummary() ? "نقاط ضعفه من الكويزات التدريبية (ركّز عليها لما تشرح):\n" + weakSummary() : ""}
 بتقدر: ترتّبله الأولويات وتعمل خطط دراسة، تشرح أي مفهوم بأمثلة، تقرأ الصور اللي ببعتها (أسئلة، سلايدات، كود، أخطاء)، تراجع شغله وتعطيه ملاحظات، وتساعده بالبرمجة.
 ${AI.langRule()}
+إنت بتقدر تسمع الرسائل الصوتية (ملفات الصوت المرفقة) وتشوف الصور وتقرأ الملفات. إذا بعتلك فويس، اسمعه وجاوب على محتواه طبيعي، وما تحكي أبداً إنك "نظام نصي" أو "ما بتسمع".
 بالواجبات والكويزات اللي عليها علامات: هدفك إنه يفهم ويقدر يحل بنفسه، فاشرح وورجيه الطريقة وأمثلة مشابهة، بدل ما تعطيه نص جاهز ينسخه ويسلّمه.`;
 }
 
@@ -1000,7 +1001,7 @@ async function sendAI(voice) {
   const docs = files.filter(x => x.doc.kind === "pdf").map(x => ({ mime: "application/pdf", data: x.doc.data }));
   const textFiles = files.filter(x => x.doc.kind === "text").map(x => `محتوى الملف "${x.name}":\n<<<\n${x.doc.data}\n>>>\n\n`).join("");
   const imgFiles = files.filter(x => x.doc.kind === "image").map(x => ({ mime: x.doc.mime, data: x.doc.data }));
-  const userMsg = { role: "user", text: voice ? (AI.settings().provider === "gemini" ? "(فويس نوت) اسمع الفويس وجاوب عليه." + (text ? " النص التقريبي: " + text : "") : text || "…") : text || (files.length ? "اقرأ الملف ولخّصلي أهم إشي فيه" : "شو بالصورة؟"),
+  const userMsg = { role: "user", text: voice ? (text ? `(رسالة صوتية من الطالب، مرفق الصوت، وهاد نصها: «${text}») جاوب على اللي قاله مباشرة.` : "(رسالة صوتية من الطالب مرفقة كملف صوت) اسمعها وجاوب على اللي قاله مباشرة.") : text || (files.length ? "اقرأ الملف ولخّصلي أهم إشي فيه" : "شو بالصورة؟"),
     voice: voice ? { secs: voice.secs } : null, audio: voice && AI.settings().provider === "gemini" ? [{ mime: "audio/wav", data: voice.data }] : [],
     images: [...pics.map(({ mime, data }) => ({ mime, data })), ...imgFiles], docs, fileNote: files.map(x => x.name), hidden: textFiles };
   pendingImgs = []; drawThumbs(); inp.value = ""; inp.style.height = "auto";
@@ -1042,10 +1043,11 @@ async function sendAI(voice) {
 async function recordStart() {
   const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
   const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  try { await ctx.resume(); } catch {}
   const src = ctx.createMediaStreamSource(stream);
   const proc = ctx.createScriptProcessor(4096, 1, 1);
-  const chunks = []; let level = 0;
-  proc.onaudioprocess = e => { const d = e.inputBuffer.getChannelData(0); chunks.push(new Float32Array(d)); let m = 0; for (let i = 0; i < d.length; i += 64) m = Math.max(m, Math.abs(d[i])); level = m; };
+  const chunks = []; let level = 0, peak = 0;
+  proc.onaudioprocess = e => { const d = e.inputBuffer.getChannelData(0); chunks.push(new Float32Array(d)); let m = 0; for (let i = 0; i < d.length; i += 64) m = Math.max(m, Math.abs(d[i])); level = m; peak = Math.max(peak, m); };
   src.connect(proc); proc.connect(ctx.destination);
   return {
     get level() { return level; },
@@ -1062,7 +1064,7 @@ async function recordStart() {
       dv.setUint32(24, target, true); dv.setUint32(28, target * 2, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true); w(36, "data"); dv.setUint32(40, pcm.length * 2, true);
       new Int16Array(buf, 44).set(pcm);
       const b64 = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(String(fr.result).split(",")[1]); fr.readAsDataURL(new Blob([buf], { type: "audio/wav" })); });
-      return { data: b64, secs: Math.round(n / target) };
+      return { data: b64, secs: Math.round(n / target), peak };
     }
   };
 }
@@ -1087,6 +1089,7 @@ async function voiceNote() {
     clearInterval(iv); try { sr && sr.stop(); } catch {}
     const v = await rec.stop(cancel); rb.remove(); bar.classList.remove("rec");
     if (!v || v.secs < 1) { if (!cancel) toast("الفويس قصير كثير"); return; }
+    if (v.peak < 0.01 && !transcript) { toast("ما وصلني صوت 🎤 تأكد إنه المايك شغّال ومش مكتوم", 4000); return; }
     sendAI({ ...v, transcript });
   };
   document.getElementById("vcancel").onclick = () => finish(true);
