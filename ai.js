@@ -63,13 +63,14 @@ const AI = (() => {
   }
 
   // messages: [{role:"user"|"assistant", text, images:[{mime,data(base64)}]}]
-  async function chat({ system, messages, onText, onModel, signal }) {
+  async function chat({ system, messages, onText, onModel, signal, json = false, depth = "fast" }) {
     const s = settings();
     let full = "";
     if (s.provider === "claude") {
       const body = {
-        model: s.claudeModel, max_tokens: 4096, stream: true, system,
+        model: s.claudeModel, max_tokens: 8000, stream: true, system,
         messages: messages.map(m => ({ role: m.role, content: [
+          ...(m.docs || []).map(d => ({ type: "document", source: { type: "base64", media_type: d.mime, data: d.data } })),
           ...(m.images || []).map(im => ({ type: "image", source: { type: "base64", media_type: im.mime, data: im.data } })),
           { type: "text", text: m.text || " " }
         ] }))
@@ -86,13 +87,22 @@ const AI = (() => {
         if (ev.type === "error") throw new Error(ev.error && ev.error.message);
       });
     } else {
-      const body = JSON.stringify({
+      const baseBody = ({
         systemInstruction: { parts: [{ text: system }] },
         contents: messages.map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [
+          ...(m.docs || []).map(d => ({ inline_data: { mime_type: d.mime, data: d.data } })),
           ...(m.images || []).map(im => ({ inline_data: { mime_type: im.mime, data: im.data } })),
           { text: m.text || " " }
         ] }))
       });
+      const noThink = S.get("ai.nothink", {}); // models that refuse the thinking setting
+      const makeBody = (model) => {
+        const gc = { temperature: json ? 0.4 : 0.7 };
+        if (json) gc.responseMimeType = "application/json";
+        // fast replies: keep the model's "thinking" short in chat; let it think more for study material
+        if (!noThink[model]) gc.thinkingConfig = { thinkingLevel: depth === "deep" ? "high" : "low" };
+        return JSON.stringify({ ...baseBody, generationConfig: gc });
+      };
       const chain = s.geminiAuto ? await freeChain(s.geminiKey) : [s.geminiModel];
       const cool = S.get("ai.cooldown", {});
       const t0 = Date.now();
@@ -104,17 +114,30 @@ const AI = (() => {
       let lastErr = null;
       for (const model of tryList) {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(s.geminiKey)}`;
-        const res = await fetch(url, { method: "POST", signal, headers: { "content-type": "application/json" }, body });
+        // each try gets its own timer: if a model doesn't start answering in time, move to the next one
+        const ctl = new AbortController(); const onAbort = () => ctl.abort(); signal && signal.addEventListener("abort", onAbort);
+        let timer = setTimeout(() => ctl.abort("slow"), depth === "deep" ? 45000 : 20000);
+        let res;
+        try { res = await fetch(url, { method: "POST", signal: ctl.signal, headers: { "content-type": "application/json" }, body: makeBody(model) }); }
+        catch (e) { clearTimeout(timer); signal && signal.removeEventListener("abort", onAbort); if (signal && signal.aborted) throw e; lastErr = new Error("الموديل تأخر أو انقطع النت"); continue; }
         if (res.ok) {
+          clearTimeout(timer); timer = null;
+          let stall = setTimeout(() => ctl.abort("stall"), 30000); // stream froze
+          const bump = () => { clearTimeout(stall); stall = setTimeout(() => ctl.abort("stall"), 30000); };
           usedModel = model;
           onModel && onModel(model);
-          await readSSE(res, ev => {
-            const parts = ev.candidates && ev.candidates[0] && ev.candidates[0].content && ev.candidates[0].content.parts;
-            if (parts) for (const p of parts) if (p.text && !p.thought) { full += p.text; onText(full); }
-          });
+          try {
+            await readSSE(res, ev => {
+              bump();
+              const parts = ev.candidates && ev.candidates[0] && ev.candidates[0].content && ev.candidates[0].content.parts;
+              if (parts) for (const p of parts) if (p.text && !p.thought) { full += p.text; onText(full); }
+            });
+          } catch (e) { if (signal && signal.aborted) throw e; if (full) { clearTimeout(stall); return full + "\n\n_(انقطع الرد)_"; } }
+          finally { clearTimeout(stall); signal && signal.removeEventListener("abort", onAbort); }
           if (full) return full;
           lastErr = new Error("الموديل ما رد بإشي"); continue;
         }
+        clearTimeout(timer); signal && signal.removeEventListener("abort", onAbort);
         let j = {}; try { j = await res.json(); } catch {}
         const msg = (j.error && j.error.message) || res.statusText;
         if (res.status === 401 || (res.status === 400 && /API key/i.test(msg)) || res.status === 403 && /key/i.test(msg))
@@ -126,11 +149,14 @@ const AI = (() => {
           cool[model] = daily ? nextPacificMidnight() : Date.now() + ((retry ? +retry[1] : 60) + 2) * 1000;
           S.set("ai.cooldown", cool); lastErr = new Error("وصلت الحد"); continue;
         }
+        if (res.status === 400 && /thinking/i.test(msg) && !noThink[model]) {
+          noThink[model] = 1; S.set("ai.nothink", noThink); tryList.splice(tryList.indexOf(model) + 1, 0, model); continue;
+        }
         if (res.status === 404 || (res.status === 400 && /model|not supported|not available/i.test(msg))) {
           cool[model] = Date.now() + 24 * 3600 * 1000; S.set("ai.cooldown", cool);
           S.del("ai.freechain"); lastErr = new Error(msg); continue;
         }
-        if (res.status >= 500) { lastErr = new Error("سيرفرات Google مضغوطة"); continue; }
+        if (res.status >= 500) { lastErr = new Error("سيرفرات Google مضغوطة"); await new Promise(r => setTimeout(r, 600)); continue; }
         throw new Error("خطأ من Gemini: " + msg);
       }
       throw new Error(lastErr && lastErr.message === "وصلت الحد"

@@ -95,7 +95,7 @@ async function route() {
   if (!Moodle.session) { $tabbar.hidden = true; document.body.classList.add("no-tabs"); return viewLogin(); }
   $tabbar.hidden = false; document.body.classList.remove("no-tabs");
   const [name, arg] = h.split(/-(.+)/);
-  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.route === (["course", "assign", "quiz"].includes(name) ? (name === "course" ? "courses" : "home") : name)));
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.route === (["course", "assign", "quiz", "study"].includes(name) ? (name === "course" || name === "study" ? "courses" : "home") : name)));
   const fn = routes[name] || routes.home;
   try { await fn(arg); } catch (e) { handleErr(e); }
 }
@@ -211,14 +211,156 @@ routes.course = async (id) => {
   await refresh();
   const c = data.courses.find(x => x.id == id);
   const items = data.items.filter(i => i.courseid == id).sort((a, b) => (b.due || 0) - (a.due || 0));
+  const tab = sessionStorage.getItem("ctab-" + id) || "files";
+  $app.innerHTML = `<div class="page">
+    <div class="top"><button class="back" onclick="history.back()">→ رجوع</button>
+      <button class="back" onclick="openMoodle('/course/view.php?id=${id}')">الإي ليرنينج ↗</button></div>
+    <h1 style="margin:0 0 14px;font-size:21px" dir="auto">${esc(c ? c.name : "")}</h1>
+    <div class="seg" id="ctabs" style="margin-bottom:14px"><button data-t="files" class="${tab === "files" ? "on" : ""}">📂 المحتوى</button><button data-t="work" class="${tab === "work" ? "on" : ""}">📝 الواجبات (${items.length})</button></div>
+    <div id="cbody"></div>
+  </div>`;
+  const body = document.getElementById("cbody");
+  const showWork = () => {
+    body.innerHTML = items.length ? items.map(i => i.due ? itemRow(i) : `<div class="card item" onclick="go('${i.kind}-${i.id}')"><div class="ic">${i.kind === "quiz" ? "📝" : "📄"}</div><div class="body"><div class="title" dir="auto">${esc(i.name)}</div><div class="due">بدون موعد</div></div></div>`).join("") : `<div class="empty">ما في واجبات بهاي المادة</div>`;
+  };
+  const showFiles = async () => {
+    body.innerHTML = `<div class="spinner"></div>`;
+    try {
+      const secs = await Study.courseContents(id);
+      if (!secs.length) { body.innerHTML = `<div class="empty">ما في ملفات بهاي المادة لسا</div>`; return; }
+      body.innerHTML = secs.map(sec => `<h2 dir="auto">${esc(sec.name)}</h2>` + sec.files.map(f => {
+        const k = Study.kindOf(f);
+        const click = f.link ? `window.open('${esc(f.url)}','_blank')` : Study.studyable(k) ? `go('study-${id}.${f.cmid}.${f.idx}')` : `openMoodle('/mod/resource/view.php?id=${f.cmid}')`;
+        return `<div class="card item" onclick="${click}"><div class="ic file-${k}">${Study.icon(k)}</div>
+          <div class="body"><div class="title" dir="auto">${esc(f.title)}</div><div class="due" dir="auto">${esc(f.filename)} ${Study.sizeLabel(f.size) ? "· " + Study.sizeLabel(f.size) : ""}</div></div>
+          ${Study.studyable(k) ? `<span class="pill ok">ادرس ✨</span>` : ""}</div>`;
+      }).join("")).join("");
+    } catch (e) { if (e.code === "auth") return handleErr(e); body.innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+  };
+  document.getElementById("ctabs").onclick = e => { const b = e.target.closest("button"); if (!b) return; sessionStorage.setItem("ctab-" + id, b.dataset.t);
+    document.querySelectorAll("#ctabs button").forEach(x => x.classList.toggle("on", x === b)); b.dataset.t === "files" ? showFiles() : showWork(); };
+  tab === "files" ? showFiles() : showWork();
+};
+
+routes.study = async (arg) => {
+  const [courseid, cmid, idx] = arg.split(".");
+  $app.innerHTML = `<div class="page"><div class="spinner"></div></div>`;
+  const secs = await Study.courseContents(courseid);
+  let f = null; for (const s of secs) for (const x of s.files) if (x.cmid == cmid && x.idx == idx) f = x;
+  if (!f) { $app.innerHTML = `<div class="page"><div class="empty">ما لقيت الملف</div></div>`; return; }
+  const k = Study.kindOf(f);
+  const cname = (data && (data.courses.find(c => c.id == courseid) || {}).name) || "";
+  const fileLink = Moodle.fileUrl(f.url);
   $app.innerHTML = `<div class="page">
     <div class="top"><button class="back" onclick="history.back()">→ رجوع</button></div>
-    <h1 style="margin:0 0 4px;font-size:20px" dir="auto">${esc(c ? c.name : "")}</h1>
-    <div class="btns" style="margin-bottom:10px"><button class="btn" onclick="openMoodle('/course/view.php?id=${id}')">افتح المادة بالإي ليرنينج ↗</button></div>
-    <h2>الواجبات والكويزات</h2>
-    ${items.length ? items.map(i => i.due ? itemRow(i) : `<div class="card item" onclick="go('${i.kind}-${i.id}')"><div class="ic">${i.kind === "quiz" ? "📝" : "📄"}</div><div class="body"><div class="title" dir="auto">${esc(i.name)}</div><div class="due">بدون موعد</div></div></div>`).join("") : `<div class="empty">ما في واجبات بهاي المادة</div>`}
+    <div class="filehead"><div class="bigic file-${k}">${Study.icon(k)}</div>
+      <div style="min-width:0"><div class="small muted" dir="auto">${esc(cname)}</div><h1 style="margin:0;font-size:20px" dir="auto">${esc(f.title)}</h1>
+      <div class="small muted" dir="auto">${esc(f.filename)} ${Study.sizeLabel(f.size) ? "· " + Study.sizeLabel(f.size) : ""}</div></div></div>
+    <div class="btns" style="margin:14px 0 4px">
+      <a class="btn" href="${esc(fileLink)}" target="_blank" rel="noopener">📥 افتح الملف</a>
+      <a class="btn" href="https://notebooklm.google.com/" target="_blank" rel="noopener" onclick="toast('نزّل الملف وارفعه بـ NotebookLM كمصدر 📚', 4000)">📓 NotebookLM ↗</a>
+    </div>
+    <div id="ferr"></div>
+    ${!AI.ready() ? `<div class="card"><b>حط مفتاح الـ AI أول</b><div class="btns"><button class="btn primary" onclick="go('settings')">الإعدادات</button></div></div>` : `
+    <h2>ادرس من الملف</h2>
+    <div class="tools">
+      <button class="tool" data-t="summary"><span>📝</span>ملخّص</button>
+      <button class="tool" data-t="explain"><span>👨‍🏫</span>اشرحلي</button>
+      <button class="tool" data-t="cards"><span>🃏</span>بطاقات مراجعة</button>
+      <button class="tool" data-t="quiz"><span>🎯</span>كويز تدريبي</button>
+    </div>
+    <div id="out"></div>
+    <h2>اسأل عن الملف</h2>
+    <div id="fchat" class="chat"></div>
+    <form class="composer" id="fcomp" style="position:static"><div class="bar">
+      <textarea id="finp" rows="1" placeholder="مثلاً: شو الفرق بين الـ Stack والـ Queue بهاد الملف؟" dir="auto"></textarea>
+      <button class="iconbtn send" id="fsend">↑</button></div></form>`}
   </div>`;
+  if (!AI.ready()) return;
+  let doc = null;
+  const getDoc = async () => {
+    if (doc) return doc;
+    document.getElementById("ferr").innerHTML = `<div class="note">⏳ بقرأ الملف…</div>`;
+    try { doc = await Study.load(f); document.getElementById("ferr").innerHTML = ""; return doc; }
+    catch (e) {
+      document.getElementById("ferr").innerHTML = `<div class="err">${e.code === "fetch" ? "ما قدرت أنزّل الملف من الإي ليرنينج للتطبيق. افتحه من زر «افتح الملف» فوق، وبعدين صوّره أو ارفعه للمساعد ✨." : esc(e.message)}</div>`;
+      throw e;
+    }
+  };
+  const out = document.getElementById("out");
+  const tools = document.querySelectorAll(".tool");
+  const busy = on => tools.forEach(t => t.disabled = on);
+  document.querySelector(".tools").onclick = async e => {
+    const b = e.target.closest(".tool"); if (!b || b.disabled) return;
+    const t = b.dataset.t; busy(true);
+    out.innerHTML = `<div class="card"><div class="spinner" style="margin:10px auto"></div><p class="small muted" style="text-align:center;margin:0">${t === "cards" ? "بجهّز البطاقات…" : t === "quiz" ? "بجهّز الأسئلة…" : "بقرأ وبكتب…"}</p></div>`;
+    try {
+      const d = await getDoc();
+      if (t === "summary" || t === "explain") {
+        const box = document.createElement("div"); box.className = "card msg ai answer"; out.innerHTML = ""; out.appendChild(box);
+        await Study.ask(d, t, txt => box.innerHTML = AI.md(txt));
+      } else {
+        const txt = await Study.ask(d, t);
+        const j = Study.parseJSON(txt);
+        t === "cards" ? renderCards(out, j.cards || []) : renderQuiz(out, j.questions || []);
+      }
+    } catch (err) { if (err.code !== "fetch") out.innerHTML = `<div class="err">${esc(err.message === "Unexpected end of JSON input" || /JSON/.test(err.message) ? "ما طلع الجواب مرتب، جرّب مرة ثانية." : err.message)}</div>`; else out.innerHTML = ""; }
+    busy(false);
+  };
+  const msgs = [];
+  const fchat = document.getElementById("fchat"), finp = document.getElementById("finp");
+  finp.addEventListener("input", () => { finp.style.height = "auto"; finp.style.height = Math.min(finp.scrollHeight, 140) + "px"; });
+  document.getElementById("fcomp").onsubmit = async e => {
+    e.preventDefault(); const q = finp.value.trim(); if (!q) return; finp.value = "";
+    const me = document.createElement("div"); me.className = "msg me"; me.textContent = q; fchat.appendChild(me);
+    const ai = document.createElement("div"); ai.className = "msg ai"; ai.textContent = "…"; fchat.appendChild(ai);
+    msgs.push({ role: "user", text: q });
+    try { const d = await getDoc(); const a = await Study.ask(d, null, txt => ai.innerHTML = AI.md(txt), msgs.slice(-12)); msgs.push({ role: "assistant", text: a }); }
+    catch (err) { msgs.pop(); ai.innerHTML = `<span style="color:var(--red)">${esc(err.code === "fetch" ? "ما قدرت أقرأ الملف" : err.message)}</span>`; }
+  };
 };
+
+function renderCards(el, cards) {
+  if (!cards.length) { el.innerHTML = `<div class="err">ما طلعت بطاقات، جرّب مرة ثانية.</div>`; return; }
+  let i = 0, known = 0;
+  const draw = () => {
+    if (i >= cards.length) { el.innerHTML = `<div class="card" style="text-align:center"><div style="font-size:40px">🎉</div><b>خلصت البطاقات</b><p class="muted">عرفت ${known} من ${cards.length}</p><button class="btn primary" id="again">أعيدهم</button></div>`; document.getElementById("again").onclick = () => { i = 0; known = 0; draw(); }; return; }
+    const c = cards[i];
+    el.innerHTML = `<div class="flash" id="flash"><div class="flash-in"><div class="face front" dir="auto"><span class="small muted">سؤال ${i + 1} من ${cards.length}</span><div>${esc(c.q)}</div><span class="small muted">اكبس عشان تشوف الجواب</span></div>
+      <div class="face back" dir="auto"><span class="small muted">الجواب</span><div>${esc(c.a)}</div></div></div></div>
+      <div class="btns" style="justify-content:center"><button class="btn" id="no">🔁 لسا</button><button class="btn primary" id="yes">✓ عرفتها</button></div>
+      <div class="progress"><div style="width:${(i / cards.length) * 100}%"></div></div>`;
+    document.getElementById("flash").onclick = e => e.currentTarget.classList.toggle("flipped");
+    document.getElementById("yes").onclick = () => { known++; i++; draw(); };
+    document.getElementById("no").onclick = () => { cards.push(cards[i]); i++; draw(); };
+  };
+  draw();
+}
+
+function renderQuiz(el, qs) {
+  if (!qs.length) { el.innerHTML = `<div class="err">ما طلعت أسئلة، جرّب مرة ثانية.</div>`; return; }
+  let i = 0, score = 0;
+  const draw = () => {
+    if (i >= qs.length) {
+      const pct = Math.round(score / qs.length * 100);
+      el.innerHTML = `<div class="card" style="text-align:center"><div style="font-size:40px">${pct >= 80 ? "🏆" : pct >= 50 ? "👍" : "📚"}</div><b>علامتك ${score} من ${qs.length}</b><p class="muted">${pct >= 80 ? "ممتاز، إنت جاهز!" : pct >= 50 ? "منيح، راجع الأسئلة اللي غلطت فيها." : "بدها مراجعة، جرّب الملخص أو البطاقات."}</p><button class="btn primary" id="again">أعيد الكويز</button></div>`;
+      document.getElementById("again").onclick = () => { i = 0; score = 0; draw(); }; return;
+    }
+    const q = qs[i];
+    el.innerHTML = `<div class="card"><div class="small muted">سؤال ${i + 1} من ${qs.length}</div><div class="qtext" dir="auto">${esc(q.q)}</div>
+      <div class="opts">${q.options.map((o, j) => `<button class="opt" data-j="${j}" dir="auto">${esc(o)}</button>`).join("")}</div><div id="why"></div>
+      <div class="progress"><div style="width:${(i / qs.length) * 100}%"></div></div></div>`;
+    el.querySelector(".opts").onclick = e => {
+      const b = e.target.closest(".opt"); if (!b || el.querySelector(".opt.right")) return;
+      const j = +b.dataset.j, ok = j === +q.answer; if (ok) score++;
+      el.querySelectorAll(".opt").forEach((x, n) => { x.disabled = true; if (n === +q.answer) x.classList.add("right"); });
+      if (!ok) b.classList.add("wrong");
+      document.getElementById("why").innerHTML = `<div class="${ok ? "goodnote" : "note"}" dir="auto">${ok ? "✓ صح! " : "✗ "}${esc(q.why || "")}</div><button class="btn primary block" id="next">${i + 1 < qs.length ? "السؤال الجاي" : "شوف علامتك"}</button>`;
+      document.getElementById("next").onclick = () => { i++; draw(); };
+    };
+  };
+  draw();
+}
 
 window.openMoodle = async (path) => {
   const url = path.startsWith("http") ? path : Moodle.SITE + path;
