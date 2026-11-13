@@ -268,3 +268,32 @@ h2{font-size:14px;color:var(--muted);font-weight:600;margin:22px 0 10px}
 .tbl th,.tbl td{border:1px solid var(--line);padding:7px 9px;text-align:start;vertical-align:top}
 .tbl th{background:var(--accent-soft);color:var(--accent)}
 .msg.ai b{color:inherit}
+/* voice */
+.bar.rec>*:not(.recwrap){display:none}
+.recwrap{display:flex;align-items:center;gap:6px;width:100%}
+.recbar{flex:1;display:flex;align-items:center;gap:8px;font-variant-numeric:tabular-nums;font-weight:600;color:var(--red);padding:0 6px}
+.recdot{width:10px;height:10px;border-radius:50%;background:var(--red);animation:pulse 1s infinite}
+.vbars{display:inline-flex;align-items:center;gap:2px;height:26px}
+.vbars i{width:3px;height:6px;border-radius:2px;background:currentColor;opacity:.7;transition:height .1s}
+.recbar .vbars{flex:1;justify-content:center;color:var(--accent)}
+.vnote{display:inline-flex;align-items:center;gap:8px}
+.vnote .vbars i:nth-child(3n){height:14px}.vnote .vbars i:nth-child(4n){height:20px}.vnote .vbars i:nth-child(5n){height:10px}
+.callbtn{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.call{position:fixed;inset:0;z-index:80;background:radial-gradient(circle at 50% 30%,#1f4d33,#08110c 75%);color:#eef5f0;display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:calc(30px + var(--safe-t)) 20px calc(30px + var(--safe-b));animation:fade .25s}
+.call.out{opacity:0;transition:opacity .2s}
+.call-top{text-align:center;font-size:20px}
+.orb{width:190px;height:190px;border-radius:50%;border:0;cursor:pointer;background:radial-gradient(circle at 35% 30%,#a7f3c8,#2f9e66 55%,#14532d);box-shadow:0 0 60px rgba(111,207,151,.45);position:relative;transition:transform .3s}
+.orb span{position:absolute;inset:-14px;border-radius:50%;border:2px solid rgba(111,207,151,.35)}
+.call[data-mode=listen] .orb{animation:breathe 1.6s ease-in-out infinite}
+.call[data-mode=listen] .orb span{animation:ring 1.6s ease-out infinite}
+.call[data-mode=think] .orb{animation:spinGlow 1.2s linear infinite;filter:hue-rotate(40deg)}
+.call[data-mode=speak] .orb{animation:talk .35s ease-in-out infinite alternate}
+@keyframes breathe{50%{transform:scale(1.06)}}
+@keyframes ring{from{transform:scale(1);opacity:.8}to{transform:scale(1.35);opacity:0}}
+@keyframes spinGlow{to{filter:hue-rotate(400deg)}}
+@keyframes talk{from{transform:scale(.97)}to{transform:scale(1.07)}}
+.call-state{font-size:18px;font-weight:600}
+.call-text{min-height:70px;max-width:520px;text-align:center;opacity:.85;font-size:16px;line-height:1.7;max-height:30vh;overflow:auto}
+.call-btns{display:flex;gap:28px}
+.cbtn{width:64px;height:64px;border-radius:50%;border:0;background:rgba(255,255,255,.12);color:#fff;font-size:24px;cursor:pointer}
+.cbtn.end{background:#e5484d}

@@ -813,7 +813,7 @@ routes.ai = async () => {
   const ready = AI.ready();
   $app.innerHTML = `<div class="page chatpage">
     <div class="top"><div><h1>المساعد ✨</h1><div class="sub" id="aimodel">${s.provider === "claude" ? "Claude · " + esc(s.claudeModel) : s.geminiAuto ? "Gemini · مجاني · بيبدّل الموديل لحاله" : "Gemini · " + esc(s.geminiModel)}</div></div>
-      ${chatMsgs.length ? `<button class="back" onclick="newChat()">محادثة جديدة</button>` : ""}</div>
+      <div style="display:flex;gap:6px">${ready ? `<button class="back callbtn" onclick="startCall()">📞 مكالمة</button>` : ""}${chatMsgs.length ? `<button class="back" onclick="newChat()">جديدة</button>` : ""}</div></div>
     ${!ready ? `<div class="card"><b>لازم تحط مفتاح الـ AI أول مرة</b><p class="small muted" style="margin:6px 0 10px">المفتاح بيتخزّن على تلفونك بس، وما بيروح لأي مكان غير الشركة نفسها.</p><button class="btn primary" onclick="go('settings')">افتح الإعدادات</button></div>` : ""}
     <div class="chat" id="chat"></div>
     ${!chatMsgs.length && ready ? `<div class="sugg" id="sugg">
@@ -827,6 +827,7 @@ routes.ai = async () => {
         <button type="button" class="iconbtn" id="attach" title="صورة أو ملف">📎</button>
         <input type="file" id="imgin" accept="image/*,.pdf,.pptx,.docx,.txt" multiple hidden>
         <textarea id="inp" rows="1" placeholder="اسأل أي إشي…" dir="auto" ${ready ? "" : "disabled"}></textarea>
+        <button type="button" class="iconbtn" id="mic" title="فويس" ${ready ? "" : "disabled"}>🎤</button>
         <button class="iconbtn send" id="send" ${ready ? "" : "disabled"}>↑</button>
       </div>
     </form>
@@ -852,6 +853,7 @@ routes.ai = async () => {
   const sugg = document.getElementById("sugg");
   if (sugg) sugg.onclick = e => { const b = e.target.closest(".chip"); if (!b) return; if (b.textContent.includes("ارفع")) document.getElementById("imgin").click(); else { inp.value = b.textContent; document.getElementById("composer").requestSubmit(); } };
   document.getElementById("composer").onsubmit = e => { e.preventDefault(); sendAI(); };
+  document.getElementById("mic").onclick = () => voiceNote();
   drawThumbs();
 };
 function drawThumbs() {
@@ -861,22 +863,23 @@ function drawThumbs() {
 function msgEl(m) {
   const d = document.createElement("div");
   d.className = "msg " + (m.role === "user" ? "me" : "ai");
-  if (m.role === "user") { d.innerHTML = (m.images || []).map(im => `<img src="data:${im.mime};base64,${im.data}">`).join("") + (m.fileNote || []).map(n => `<span class="filechip">📄 ${esc(n)}</span>`).join("") + esc(m.text); }
+  if (m.role === "user") { d.innerHTML = m.voice ? `<span class="vnote">🎤 <span class="vbars">${"<i></i>".repeat(14)}</span> ${m.voice.secs}ث</span>` : (m.images || []).map(im => `<img src="data:${im.mime};base64,${im.data}">`).join("") + (m.fileNote || []).map(n => `<span class="filechip">📄 ${esc(n)}</span>`).join("") + esc(m.text); }
   else { d.innerHTML = AI.md(m.text || ""); setTimeout(() => enhance(d), 0); }
   return d;
 }
 window.newChat = () => { chatMsgs = []; S.set("ai.chat", []); route(); };
-async function sendAI() {
+async function sendAI(voice) {
   const inp = document.getElementById("inp");
-  const text = inp.value.trim();
+  const text = voice ? (voice.transcript || "") : inp.value.trim();
   if (aiBusy) { aiAbort && aiAbort.abort(); return; }
-  if (!text && !pendingImgs.length) return;
+  if (!text && !pendingImgs.length && !voice) return;
   const sugg = document.getElementById("sugg"); if (sugg) sugg.remove();
   const files = pendingImgs.filter(x => x.file), pics = pendingImgs.filter(x => !x.file);
   const docs = files.filter(x => x.doc.kind === "pdf").map(x => ({ mime: "application/pdf", data: x.doc.data }));
   const textFiles = files.filter(x => x.doc.kind === "text").map(x => `محتوى الملف "${x.name}":\n<<<\n${x.doc.data}\n>>>\n\n`).join("");
   const imgFiles = files.filter(x => x.doc.kind === "image").map(x => ({ mime: x.doc.mime, data: x.doc.data }));
-  const userMsg = { role: "user", text: text || (files.length ? "اقرأ الملف ولخّصلي أهم إشي فيه" : "شو بالصورة؟"),
+  const userMsg = { role: "user", text: voice ? (AI.settings().provider === "gemini" ? "(فويس نوت) اسمع الفويس وجاوب عليه." + (text ? " النص التقريبي: " + text : "") : text || "…") : text || (files.length ? "اقرأ الملف ولخّصلي أهم إشي فيه" : "شو بالصورة؟"),
+    voice: voice ? { secs: voice.secs } : null, audio: voice && AI.settings().provider === "gemini" ? [{ mime: "audio/wav", data: voice.data }] : [],
     images: [...pics.map(({ mime, data }) => ({ mime, data })), ...imgFiles], docs, fileNote: files.map(x => x.name), hidden: textFiles };
   pendingImgs = []; drawThumbs(); inp.value = ""; inp.style.height = "auto";
   chatMsgs.push(userMsg);
@@ -889,7 +892,7 @@ async function sendAI() {
   const sendBtn = document.getElementById("send"); sendBtn.textContent = "■";
   try {
     // keep last 20 messages; only the last 2 user turns keep their images (saves cost)
-    const recent = chatMsgs.slice(-20).map((m, i, arr) => ({ ...m, text: (m.hidden || "") + (m.text || ""), images: i >= arr.length - 4 ? m.images : [], docs: i >= arr.length - 4 ? m.docs : [] }));
+    const recent = chatMsgs.slice(-20).map((m, i, arr) => ({ ...m, text: (m.hidden || "") + (m.text || ""), images: i >= arr.length - 4 ? m.images : [], docs: i >= arr.length - 4 ? m.docs : [], audio: i >= arr.length - 2 ? m.audio : [] }));
     if (recent[0] && recent[0].role === "assistant") recent.shift();
     const full = await AI.chat({ system: aiContext(), messages: recent, signal: aiAbort.signal,
       onModel: m => { const el = document.getElementById("aimodel"); if (el && AI.settings().geminiAuto) el.textContent = "Gemini · مجاني · " + m; },
@@ -903,9 +906,148 @@ async function sendAI() {
   }
   // don't store old images forever (storage is small)
   chatMsgs = chatMsgs.slice(-40).map((m, i, arr) => i < arr.length - 6 ? { ...m, images: [], docs: [], hidden: "" } : m);
-  try { S.set("ai.chat", chatMsgs.map(m => ({ ...m, docs: [], hidden: "" }))); } catch {}
+  try { S.set("ai.chat", chatMsgs.map(m => ({ ...m, docs: [], hidden: "", audio: [] }))); } catch {}
   aiBusy = false; aiAbort = null; if (sendBtn) sendBtn.textContent = "↑";
 }
+
+
+/* ---------------- voice: notes + live call ---------------- */
+// record the mic and turn it into a small 16kHz WAV (works everywhere, Gemini understands it)
+async function recordStart() {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const src = ctx.createMediaStreamSource(stream);
+  const proc = ctx.createScriptProcessor(4096, 1, 1);
+  const chunks = []; let level = 0;
+  proc.onaudioprocess = e => { const d = e.inputBuffer.getChannelData(0); chunks.push(new Float32Array(d)); let m = 0; for (let i = 0; i < d.length; i += 64) m = Math.max(m, Math.abs(d[i])); level = m; };
+  src.connect(proc); proc.connect(ctx.destination);
+  return {
+    get level() { return level; },
+    async stop(cancel) {
+      proc.disconnect(); src.disconnect(); stream.getTracks().forEach(t => t.stop());
+      const rate = ctx.sampleRate; await ctx.close();
+      if (cancel) return null;
+      const len = chunks.reduce((a, c) => a + c.length, 0), all = new Float32Array(len); let o = 0; for (const c of chunks) { all.set(c, o); o += c.length; }
+      const target = 16000, ratio = rate / target, n = Math.floor(len / ratio), pcm = new Int16Array(n);
+      for (let i = 0; i < n; i++) { const v = all[Math.floor(i * ratio)] || 0; pcm[i] = Math.max(-1, Math.min(1, v)) * 0x7fff; }
+      const buf = new ArrayBuffer(44 + pcm.length * 2), dv = new DataView(buf);
+      const w = (p, str) => { for (let i = 0; i < str.length; i++) dv.setUint8(p + i, str.charCodeAt(i)); };
+      w(0, "RIFF"); dv.setUint32(4, 36 + pcm.length * 2, true); w(8, "WAVE"); w(12, "fmt "); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+      dv.setUint32(24, target, true); dv.setUint32(28, target * 2, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true); w(36, "data"); dv.setUint32(40, pcm.length * 2, true);
+      new Int16Array(buf, 44).set(pcm);
+      const b64 = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(String(fr.result).split(",")[1]); fr.readAsDataURL(new Blob([buf], { type: "audio/wav" })); });
+      return { data: b64, secs: Math.round(n / target) };
+    }
+  };
+}
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const srLang = () => AI.settings().lang === "en" ? "en-US" : "ar-JO";
+
+async function voiceNote() {
+  const bar = document.querySelector("#composer .bar"); if (!bar) return;
+  let rec; try { rec = await recordStart(); } catch { toast("لازم تسمح للمايك 🎤", 3500); return; }
+  buzz();
+  // live transcript too (used when the provider can't hear audio)
+  let transcript = ""; let sr = null;
+  if (SR) { try { sr = new SR(); sr.lang = srLang(); sr.continuous = true; sr.interimResults = true; sr.onresult = e => { transcript = [...e.results].map(r => r[0].transcript).join(" "); }; sr.start(); } catch { sr = null; } }
+  const t0 = Date.now();
+  const rb = document.createElement("div"); rb.className = "recwrap";
+  rb.innerHTML = `<button type="button" class="iconbtn" id="vcancel">✕</button><div class="recbar"><span class="recdot"></span><span id="rect">0:00</span><span class="vbars live" id="rlv">${"<i></i>".repeat(18)}</span></div><button type="button" class="iconbtn send" id="vsend">↑</button>`;
+  bar.classList.add("rec"); bar.appendChild(rb);
+  const bars = [...rb.querySelectorAll("#rlv i")];
+  const iv = setInterval(() => { const s = Math.floor((Date.now() - t0) / 1000); const el = document.getElementById("rect"); if (el) el.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+    bars.forEach((b, i) => b.style.height = (4 + Math.random() * rec.level * 60 * (0.5 + (i % 3) / 3)) + "px"); }, 120);
+  const finish = async (cancel) => {
+    clearInterval(iv); try { sr && sr.stop(); } catch {}
+    const v = await rec.stop(cancel); rb.remove(); bar.classList.remove("rec");
+    if (!v || v.secs < 1) { if (!cancel) toast("الفويس قصير كثير"); return; }
+    sendAI({ ...v, transcript });
+  };
+  document.getElementById("vcancel").onclick = () => finish(true);
+  document.getElementById("vsend").onclick = () => finish(false);
+}
+
+/* live call: talk, it answers out loud, and listens again */
+window.startCall = async () => {
+  if (!AI.ready()) return;
+  buzz();
+  const ov = document.createElement("div"); ov.className = "call";
+  ov.innerHTML = `<div class="call-top"><div class="small" style="opacity:.7">مكالمة مع</div><b>المساعد ✨</b></div>
+    <button class="orb" id="orb"><span></span></button>
+    <div class="call-state" id="cst">بتّصل…</div>
+    <div class="call-text" id="ctx" dir="auto"></div>
+    <div class="call-btns"><button class="cbtn" id="cmute">🎤</button><button class="cbtn end" id="cend">✕</button></div>`;
+  document.body.appendChild(ov);
+  const orb = ov.querySelector("#orb"), cst = ov.querySelector("#cst"), ctxEl = ov.querySelector("#ctx");
+  const synth = window.speechSynthesis; synth && synth.getVoices();
+  let alive = true, mode = "idle", sr = null, rec = null, abort = null, muted = false;
+  const callMsgs = [];
+  const set = (m, label) => { mode = m; ov.dataset.mode = m; cst.textContent = label; };
+  const pickVoice = (txt) => { const vs = synth ? synth.getVoices() : []; const latin = (txt.match(/[a-z]/gi) || []).length > txt.length * 0.5;
+    return (latin ? vs.find(v => /^en/i.test(v.lang)) : vs.find(v => /^ar/i.test(v.lang))) || vs.find(v => /^ar/i.test(v.lang)) || null; };
+  let speakQ = [], speaking = false, streamDone = false;
+  const clean = t => t.replace(/```[\s\S]*?```/g, " ").replace(/[*#`>|_]/g, "").replace(/\s+/g, " ").trim();
+  const speakNext = () => {
+    if (!alive) return;
+    if (!speakQ.length) { speaking = false; if (streamDone) listen(); return; }
+    speaking = true; const t = speakQ.shift();
+    if (!synth) { setTimeout(speakNext, t.length * 60); return; }
+    const u = new SpeechSynthesisUtterance(t); const v = pickVoice(t); if (v) { u.voice = v; u.lang = v.lang; } else u.lang = "ar";
+    u.rate = 1.08; u.onend = speakNext; u.onerror = speakNext; synth.speak(u);
+  };
+  async function think(text, audio) {
+    set("think", "بفكّر…"); buzz();
+    callMsgs.push({ role: "user", text: text || "(فويس) اسمع وجاوب", audio: audio ? [audio] : [] });
+    chatMsgs.push({ role: "user", text: text || "🎤 (مكالمة)" });
+    abort = new AbortController(); speakQ = []; streamDone = false; let said = 0, full = "";
+    try {
+      full = await AI.chat({ system: aiContext() + "\nهاي مكالمة صوتية مباشرة: رد بجمل قصيرة طبيعية كأنك بتحكي، بدون رموز أو قوائم أو جداول أو كود، 2-4 جمل بالكثير إلا إذا طلب شرح أطول. إذا الطالب حكى بالعربي رد بالعربي، وإذا بالإنجليزي رد بالإنجليزي.",
+        messages: callMsgs.slice(-12).map((m, i, a) => ({ ...m, audio: i === a.length - 1 ? m.audio : [] })), depth: "fast", signal: abort.signal,
+        onText: t => {
+          if (mode === "think") set("speak", "بحكي…");
+          ctxEl.textContent = clean(t);
+          // speak sentence by sentence as they arrive, no waiting for the whole answer
+          const c = clean(t), rest = c.slice(said), m = rest.match(/^[\s\S]*?[.!؟?،\n](\s|$)/);
+          if (m && m[0].trim().length > 2) { said += m[0].length; speakQ.push(m[0].trim()); if (!speaking) speakNext(); }
+        } });
+      const tail = clean(full).slice(said).trim(); if (tail) speakQ.push(tail);
+      callMsgs.push({ role: "assistant", text: full }); chatMsgs.push({ role: "assistant", text: full });
+      streamDone = true; if (!speaking) speakNext();
+    } catch (e) { if (!alive) return; callMsgs.pop(); chatMsgs.pop(); set("idle", e.name === "AbortError" ? "اتفضل احكي" : "صار خطأ، احكي كمان مرة"); setTimeout(listen, 900); }
+  }
+  async function listen() {
+    if (!alive) return; if (muted) { set("idle", "المايك مسكّر"); return; }
+    try { synth && synth.cancel(); } catch {}
+    set("listen", "بسمعك… احكي"); ctxEl.textContent = "";
+    if (SR) {
+      try {
+        sr = new SR(); sr.lang = srLang(); sr.interimResults = true; sr.continuous = false;
+        let final = "";
+        sr.onresult = e => { const t = [...e.results].map(r => r[0].transcript).join(" "); ctxEl.textContent = t; if (e.results[e.results.length - 1].isFinal) final = t; };
+        sr.onend = () => { if (!alive || mode !== "listen") return; if (final.trim()) think(final.trim()); else listen(); };
+        sr.onerror = ev => { if (ev.error === "not-allowed") { set("idle", "لازم تسمح للمايك 🎤"); alive && (muted = true); } };
+        sr.start(); return;
+      } catch {}
+    }
+    // no live speech recognition here: tap the circle to talk, tap again to send
+    set("idle", "اكبس الدائرة وأحكي");
+  }
+  orb.onclick = async () => {
+    buzz();
+    if (mode === "speak" || mode === "think") { abort && abort.abort(); speakQ = []; try { synth.cancel(); } catch {} speaking = false; listen(); return; }
+    if (!SR) {
+      if (!rec) { try { rec = await recordStart(); set("listen", "بسجّل… اكبس لما تخلص"); } catch { set("idle", "لازم تسمح للمايك 🎤"); } }
+      else { const v = await rec.stop(); rec = null; if (v && v.secs) think("", { mime: "audio/wav", data: v.data }); else set("idle", "اكبس الدائرة وأحكي"); }
+    }
+  };
+  ov.querySelector("#cmute").onclick = e => { muted = !muted; e.target.textContent = muted ? "🔇" : "🎤"; if (muted) { try { sr && sr.abort(); } catch {} set("idle", "المايك مسكّر"); } else listen(); };
+  const end = () => { alive = false; try { sr && sr.abort(); } catch {} try { synth && synth.cancel(); } catch {} abort && abort.abort(); rec && rec.stop(true);
+    ov.classList.add("out"); setTimeout(() => ov.remove(), 200); try { S.set("ai.chat", chatMsgs.map(m => ({ ...m, docs: [], hidden: "", audio: [] }))); } catch {} if (location.hash === "#ai") route(); };
+  ov.querySelector("#cend").onclick = end;
+  window.addEventListener("hashchange", end, { once: true });
+  const hello = AI.settings().lang === "en" ? "Hi! What do you want to study today?" : "أهلين! شو بدك ندرس اليوم؟";
+  ctxEl.textContent = hello; set("speak", "بحكي…"); speakQ = [hello]; streamDone = true; speakNext();
+};
 
 /* ---------------- settings ---------------- */
 routes.settings = async () => {

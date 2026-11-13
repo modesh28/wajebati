@@ -99,6 +99,7 @@ const AI = (() => {
         systemInstruction: { parts: [{ text: system }] },
         contents: messages.map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [
           ...(m.docs || []).map(d => ({ inline_data: { mime_type: d.mime, data: d.data } })),
+          ...(m.audio || []).map(a => ({ inline_data: { mime_type: a.mime, data: a.data } })),
           ...(m.images || []).map(im => ({ inline_data: { mime_type: im.mime, data: im.data } })),
           { text: m.text || " " }
         ] }))
