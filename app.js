@@ -24,7 +24,7 @@ let loading = null;
 
 async function refresh(force = false) {
   if (loading) return loading;
-  if (!force && data && Date.now() - data.fetched < 5 * 60 * 1000) return data;
+  if (!force && data && data.v === 2 && Date.now() - data.fetched < 5 * 60 * 1000) return data;
   loading = (async () => {
     const courses = await Moodle.courses();
     const ids = courses.map(c => c.id);
@@ -39,8 +39,22 @@ async function refresh(force = false) {
     // mark what still needs action (from the calendar's "action events")
     const pending = new Set(events.filter(e => e.actionable).map(e => `${e.module === "assign" ? "assign" : e.module}:${e.instance}`));
     items.forEach(i => i.pending = pending.has(`${i.kind}:${i.id}`));
+    // check what you already submitted / finished, so it never shows as "مطلوب منك"
+    const t = now();
+    const check = items.filter(i => i.due && i.due > t - 7 * 86400 && i.due < t + 120 * 86400);
+    await Promise.all(check.map(async i => {
+      try {
+        if (i.kind === "assign") {
+          const st = await Moodle.submissionStatus(i.id);
+          i.submitted = st.status === "submitted" || st.graded;
+        } else {
+          const r = await Moodle.call("mod_quiz_get_user_attempts", { quizid: i.id, status: "finished" });
+          i.submitted = (r.attempts || []).length > 0;
+        }
+      } catch { i.submitted = !i.pending && events.length > 0 && i.due > t; }
+    }));
     const prev = data;
-    data = { courses: courses.map(c => ({ ...c, name: cleanCourse(c.name) })), items, fetched: Date.now() };
+    data = { v: 2, courses: courses.map(c => ({ ...c, name: cleanCourse(c.name) })), items, fetched: Date.now() };
     S.set("mdl.cache", data);
     notifyNew(prev, data);
     return data;
@@ -178,8 +192,9 @@ routes.home = async () => {
       </div>
       <div id="brief"></div>
       ${notifBanner()}
-      <h2>الجاي</h2>
-      ${up.length ? up.map(itemRow).join("") : data ? `<div class="empty">ما في إشي جاي 👌</div>` : skel(4)}
+      <h2>مطلوب منك</h2>
+      ${todo.length ? todo.map(itemRow).join("") : data ? `<div class="empty">خلّصت كل إشي 👌</div>` : skel(4)}
+      ${up.length > todo.length ? `<details class="donebox"><summary>✓ خلّصتها (${up.length - todo.length})</summary>${up.filter(isDone).map(itemRow).join("")}</details>` : ""}
       ${past.length ? `<h2>فات موعدها مؤخراً</h2>${past.map(itemRow).join("")}` : ""}
       <p class="small muted" style="text-align:center;margin-top:18px">${data ? "آخر تحديث: " + fmtShort.format(new Date(data.fetched)) : ""} · <a href="#" onclick="event.preventDefault();pull()">تحديث</a></p>
     </div>`;

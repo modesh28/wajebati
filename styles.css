@@ -262,3 +262,4 @@ h2{font-size:14px;color:var(--muted);font-weight:600;margin:22px 0 10px}
 .pl b{display:block;font-size:12px;opacity:.8}
 .pl.a b{color:#f9a8d4}.pl.b b{color:#93c5fd}
 .pl.on{background:rgba(196,181,253,.25);box-shadow:inset 3px 0 0 #c4b5fd}
+.donebox{margin-top:14px}.donebox summary{cursor:pointer;color:var(--muted);font-weight:600;font-size:14px;margin-bottom:10px}.donebox .card{opacity:.65}
