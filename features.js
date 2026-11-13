@@ -358,6 +358,7 @@ function homeExtras() {
     <div class="quick">
       <button onclick="snapSolve()"><span>📸</span>صوّر سؤال</button>
       <button onclick="go('timer')"><span>⏱️</span>مؤقت</button>
+      <button onclick="go('vreview')"><span>🎧</span>مراجعة صوتية</button>
       <button onclick="go('gpa')"><span>🎓</span>المعدل</button>
       <button onclick="go('search')"><span>🔎</span>بحث</button>
       <button onclick="go('rooms')"><span>👥</span>غرف دراسة</button>

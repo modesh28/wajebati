@@ -438,3 +438,7 @@ body.no-tabs .rbar{bottom:calc(10px + var(--safe-b))}
 .mact button{border:0;background:var(--bg);border-radius:8px;padding:3px 8px;cursor:pointer;font-size:13px}
 .mact button:hover{opacity:1;background:var(--accent-soft)}
 .sharewrap .mact{display:none}
+.seg.wrap{flex-wrap:wrap}
+.seg.wrap button{flex:1 1 auto;white-space:nowrap}
+.call-mode{font-size:12px;opacity:.7;margin-top:4px}
+.call-score{font-weight:700;font-size:16px;background:rgba(255,255,255,.1);padding:4px 14px;border-radius:999px}
