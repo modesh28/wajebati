@@ -24,9 +24,15 @@ const Moodle = (() => {
 
   async function login(username, password) {
     const body = new URLSearchParams({ username, password, service: "moodle_mobile_app" });
-    const r = await fetch(`${SITE}/login/token.php`, { method: "POST", body });
-    const j = await r.json();
-    if (!j.token) throw new Error(j.error || "اسم المستخدم أو كلمة السر غلط");
+    let r;
+    try { r = await fetch(`${SITE}/login/token.php`, { method: "POST", body }); }
+    catch { throw new Error(navigator.onLine === false ? "إنت مش متصل بالنت 📶" : "ما قدرت أوصل لموقع الجامعة، جرّب كمان شوي"); }
+    const j = await r.json().catch(() => ({}));
+    if (!j.token) {
+      const code = j.errorcode || "";
+      throw new Error(code === "invalidlogin" ? "الرقم الجامعي أو كلمة السر غلط" : code === "usernotfullysetup" ? "لازم تكمّل إعداد حسابك على موقع الإي ليرنينج أول"
+        : /locked|suspended/i.test(code + j.error) ? "الحساب مقفول مؤقتاً، جرّب بعد شوي" : (j.error || "ما زبط تسجيل الدخول"));
+    }
     session = { token: j.token, privatetoken: j.privatetoken || null };
     const info = await call("core_webservice_get_site_info");
     session.userid = info.userid;
@@ -66,8 +72,17 @@ const Moodle = (() => {
     }
     return u;
   }
+  // keep course content safe: drop scripts, iframes, inline event handlers and javascript: links
+  function sanitize(html) {
+    const t = document.createElement("template"); t.innerHTML = html;
+    t.content.querySelectorAll("script,style,iframe,object,embed,form,link,meta,base").forEach(n => n.remove());
+    t.content.querySelectorAll("*").forEach(n => { for (const a of [...n.attributes]) { const v = a.value.trim().toLowerCase(); if (/^on/i.test(a.name) || ((a.name === "href" || a.name === "src") && /^(javascript|data:text)/.test(v))) n.removeAttribute(a.name); }
+      if (n.tagName === "A") { n.setAttribute("target", "_blank"); n.setAttribute("rel", "noopener"); } });
+    return t.innerHTML;
+  }
   function rewriteHtml(html) {
     if (!html) return "";
+    html = sanitize(html);
     return html.replace(/(src|href)="(https:\/\/s1\.ebalqa\.courses\/[^"]*pluginfile\.php[^"]*)"/g, (m, a, u) => `${a}="${fileUrl(u.replace(/&amp;/g, "&"))}"`);
   }
 

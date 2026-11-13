@@ -73,10 +73,13 @@ async function refresh(force = false) {
 }
 
 // show cached data instantly; refresh quietly and redraw only if something changed
+function offlineNote() { if (document.getElementById("offline")) return; const d = document.createElement("div"); d.id = "offline"; d.className = "offline"; d.textContent = "📶 ما في نت، بعرض آخر نسخة محفوظة"; document.body.appendChild(d); }
+window.addEventListener("online", () => { const o = document.getElementById("offline"); o && o.remove(); if (Moodle.session) refresh(true).then(() => route()).catch(() => {}); });
+window.addEventListener("offline", offlineNote);
 async function ensureData(redraw) {
   if (!data) { await refresh(); return; }
   const h = location.hash, before = JSON.stringify(data.items);
-  refresh().then(d => { if (location.hash === h && JSON.stringify(d.items) !== before) redraw && redraw(); }).catch(() => {});
+  refresh().then(d => { const o = document.getElementById("offline"); o && o.remove(); if (location.hash === h && JSON.stringify(d.items) !== before) redraw && redraw(); }).catch(e => { if (e && e.code === "auth") handleErr(e); else offlineNote(); });
 }
 function upcoming() {
   if (!data) return [];
@@ -244,7 +247,8 @@ routes.home = async () => {
   };
   render(); brief();
   window.pull = async () => { try { await refresh(true); render(); remindDeadlines(); toast("✓"); } catch (e) { handleErr(e); } };
-  await refresh();
+  try { await refresh(); }
+  catch (e) { if (e.code === "auth" || !data) throw e; offlineNote(); return; }
   if (location.hash.slice(1) === "home" || !location.hash) { render(); brief(); remindDeadlines(); }
 };
 
@@ -290,7 +294,7 @@ routes.courses = async () => {
   const counts = {};
   upcoming().filter(i => i.due > now() && !isDone(i)).forEach(i => counts[i.courseid] = (counts[i.courseid] || 0) + 1);
   $app.innerHTML = `<div class="page"><div class="top"><h1>المواد</h1><span class="sub">${data.courses.length} مادة</span></div>
-    ${data.courses.map(c => `<div class="card item" onclick="go('course-${c.id}')">
+    ${!data.courses.length ? `<div class="empty">📭 ما في مواد مسجّلة هالفصل لسا</div>` : ""}${data.courses.map(c => `<div class="card item" onclick="go('course-${c.id}')">
       <div class="ic">📘</div><div class="body"><div class="title" dir="auto">${esc(c.name)}</div>
       <div class="due">${counts[c.id] ? `${counts[c.id]} مطلوب منك` : "ما في إشي مطلوب"}</div></div>
       ${counts[c.id] ? `<span class="pill soon">${counts[c.id]}</span>` : ""}</div>`).join("") || `<div class="empty">ما في مواد</div>`}
@@ -379,7 +383,6 @@ routes.study = async (arg) => {
       <button class="tool" data-t="mindmap"><span>🌳</span>خريطة</button>
       <button class="tool" data-t="sim"><span>🎮</span>محاكاة</button>
       <button class="tool" data-t="diagram"><span>📊</span>رسم</button>
-      <button class="tool" data-t="explain"><span>👨‍🏫</span>اشرحلي</button>
       <button class="tool" data-t="cards"><span>🃏</span>بطاقات</button>
       <button class="tool" data-t="quiz"><span>🎯</span>كويز</button>
     </div>
@@ -770,7 +773,7 @@ routes.assign = async (id) => {
       <div class="card">
         <div id="serr"></div>
         ${allowText ? `<div class="field"><label>الإجابة (نص)</label><textarea class="input" id="stext" rows="6" dir="auto"></textarea></div>` : ""}
-        ${allowFiles ? `<div class="field"><label>الملفات</label><input class="input" type="file" id="sfiles" multiple>
+        ${allowFiles ? `<div class="field"><label>الملفات</label><label class="filepick"><input type="file" id="sfiles" multiple hidden><span id="sfname">📎 اختار ملف أو أكثر</span></label>
           <div class="hint">${st.files.length ? "الملفات الجديدة رح تستبدل اللي سلّمته قبل." : "PDF أو Word أو صور…"}</div></div>` : ""}
         <button class="btn primary block" id="sbtn">${a.drafts ? "احفظ وسلّم" : "سلّم"}</button>
         <p class="small muted" style="margin:10px 0 0">بالتسليم إنت بتأكد إنه هاد شغلك الخاص.</p>
@@ -781,6 +784,8 @@ routes.assign = async (id) => {
       ${!a.submitted ? `<button class="btn" onclick="toggleDone('assign:${a.id}')">${doneSet().has("assign:" + a.id) ? "رجّعه مش مخلّص" : "✓ علّمه مخلّص"}</button>` : ""}
     </div>
   </div>`;
+  const sfi = document.getElementById("sfiles");
+  if (sfi) sfi.onchange = () => { const n = [...sfi.files].map(f => f.name); document.getElementById("sfname").textContent = n.length ? "📄 " + n.join("، ") : "📎 اختار ملف أو أكثر"; };
   const sbtn = document.getElementById("sbtn");
   if (st && st.text && document.getElementById("stext")) document.getElementById("stext").value = st.text.replace(/<br\s*\/?>/g, "\n").replace(/<\/p>\s*<p>/g, "\n\n").replace(/<[^>]+>/g, "");
   if (sbtn) sbtn.onclick = async () => {
@@ -1244,7 +1249,15 @@ window.logout = () => { Moodle.logout(); S.del("ai.chat"); chatMsgs = []; locati
 
 /* ---------------- PWA ---------------- */
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js").then(() => registerPeriodic()).catch(() => {});
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register("sw.js").then(reg => { registerPeriodic(); reg.update && setInterval(() => reg.update().catch(() => {}), 30 * 60000); }).catch(() => {});
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!hadController || reloaded) return; reloaded = true;
+    // don't interrupt typing, a call or a room
+    if (document.querySelector(".call, .room") || (document.activeElement && /TEXTAREA|INPUT/.test(document.activeElement.tagName))) { toast("✨ في تحديث جديد، سكّر التطبيق وافتحه"); return; }
+    location.reload();
+  });
 }
 async function registerPeriodic() {
   try {
@@ -1262,3 +1275,18 @@ document.addEventListener("visibilitychange", () => { if (document.visibilitySta
 route().then(syncSessionToSW);
 
 document.getElementById("toast").addEventListener("click", e => e.currentTarget.hidden = true);
+
+/* pull down on the home screen to refresh */
+(() => {
+  let y0 = null, pulled = 0, ind = null;
+  document.addEventListener("touchstart", e => { if ((location.hash || "#home") === "#home" && window.scrollY <= 0) { y0 = e.touches[0].clientY; pulled = 0; } }, { passive: true });
+  document.addEventListener("touchmove", e => {
+    if (y0 === null) return; pulled = e.touches[0].clientY - y0; if (pulled < 10) return;
+    if (!ind) { ind = document.createElement("div"); ind.className = "ptr"; ind.textContent = "↓"; document.body.appendChild(ind); }
+    ind.style.transform = `translate(-50%, ${Math.min(pulled, 110) - 40}px) rotate(${pulled * 2}deg)`; ind.textContent = pulled > 80 ? "↻" : "↓";
+  }, { passive: true });
+  document.addEventListener("touchend", () => {
+    if (ind) { const go2 = pulled > 80; ind.style.transform = "translate(-50%,-60px)"; const el = ind; ind = null; setTimeout(() => el.remove(), 250); if (go2 && window.pull) { buzz(); window.pull(); } }
+    y0 = null;
+  });
+})();

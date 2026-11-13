@@ -409,3 +409,8 @@ body.no-tabs .rbar{bottom:calc(10px + var(--safe-b))}
 .editor{direction:ltr}
 #rform{display:flex;gap:6px;align-items:center;background:var(--bg);border:1px solid var(--line);border-radius:22px;padding:4px}
 #rform .input{flex:1;padding:8px 10px}
+.filepick{display:flex;align-items:center;justify-content:center;border:1.5px dashed var(--line);border-radius:12px;padding:14px;cursor:pointer;color:var(--muted);font-weight:600;text-align:center}
+.filepick:hover{border-color:var(--accent);color:var(--accent)}
+.offline{position:fixed;top:calc(8px + var(--safe-t));left:50%;transform:translateX(-50%);background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber);padding:6px 14px;border-radius:999px;font-size:13px;font-weight:600;z-index:30}
+.tools{grid-template-columns:repeat(3,1fr)}
+.ptr{position:fixed;top:calc(10px + var(--safe-t));left:50%;width:38px;height:38px;border-radius:50%;background:var(--card);border:1px solid var(--line);box-shadow:0 4px 14px rgba(0,0,0,.15);display:grid;place-items:center;font-size:18px;color:var(--accent);z-index:40;transform:translate(-50%,-60px);transition:transform .05s}
