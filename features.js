@@ -395,6 +395,10 @@ function homeExtras() {
       <button onclick="go('timer')"><span>⏱️</span>مؤقت</button>
       <button onclick="go('vreview')"><span>🎧</span>مراجعة صوتية</button>
       <button onclick="go('gpa')"><span>🎓</span>المعدل</button>
+      <button onclick="go('search')"><span>🔎</span>بحث</button>
+      <button onclick="go('rooms')"><span>👥</span>غرف دراسة</button>
+      <button onclick="go('code')"><span>💻</span>برمجة</button>
+      <button onclick="go('grades')"><span>🎯</span>علاماتي</button>
     </div>`;
 }
 window.homeExtras = homeExtras;

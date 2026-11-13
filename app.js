@@ -152,12 +152,12 @@ routes.review = async () => {
 function go(r) { location.hash = r; }
 async function route() {
   const h = location.hash.slice(1) || "home";
-  if (!Moodle.session && !/^ch-/.test(h)) { $tabbar.hidden = true; document.body.classList.add("no-tabs"); return viewLogin(); }
+  if (!Moodle.session && !/^(ch|room)-/.test(h)) { $tabbar.hidden = true; document.body.classList.add("no-tabs"); return viewLogin(); }
   $tabbar.hidden = false; document.body.classList.remove("no-tabs");
   const [name, arg] = h.split(/-(.+)/);
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.route === (["course", "assign", "quiz", "study"].includes(name) ? (name === "course" || name === "study" ? "courses" : "home") : name)));
   const fn = routes[name] || routes.home;
-  if (name === "ch") { try { await fn(arg); } catch (e) { handleErr(e); } return; }
+  if ((name === "ch" || name === "room") && !Moodle.session) { try { await fn(arg); } catch (e) { handleErr(e); } return; }
   try { await fn(arg); } catch (e) { handleErr(e); }
 }
 function handleErr(e) {
@@ -862,7 +862,7 @@ function findCourse(q) {
     data.courses.map(c => ({ c, score: n.split(" ").filter(w => w.length > 2 && norm(c.name).includes(w)).length })).sort((a, b) => b.score - a.score).filter(x => x.score)[0]?.c || null;
 }
 function aiTools() {
-  return [...(window.featureTools ? featureTools() : []),
+  return [...(window.featureTools ? featureTools() : []), ...(window.featureTools2 ? featureTools2() : []),
     { name: "get_my_work", description: "Get the student's upcoming and recent assignments and quizzes from the e-learning, with due dates and whether each is already submitted.", label: () => "بشوف واجباتك…",
       execute: async () => { await refresh(); return { now: new Date().toISOString(), items: upcoming().map(i => ({ type: i.kind, name: i.name, course: i.coursename, due: new Date(i.due * 1000).toISOString(), time_left: i.due > now() ? left(i.due - now()) : "passed", done: !!isDone(i) })) }; } },
     { name: "list_courses", description: "List the student's courses this semester.", label: () => "بشوف موادك…",
@@ -912,7 +912,7 @@ function aiContext() {
 ${list}
 
 لما يفيد، استخدم رسومات: \`\`\`mermaid للمخططات (وكل نص جوّا الأشكال بين تنصيص مثل A[\"نص\"]) (خطوات، علاقات، هياكل بيانات، خطط دراسة شجرية)، و\`\`\`html لمحاكاة تفاعلية صغيرة (صفحة كاملة بدون مكتبات خارجية، RTL) لما المفهوم بينفهم بالتجربة (Stack, Queue, sorting…).
-عندك أدوات: بتقدر تشوف واجباته، وتفتح ملفات أي مادة وتقرأها (list_course_files ثم open_course_file)، وتجيب تفاصيل أي واجب، وتشوف نقاط ضعفه، وتحفظله بطاقات مراجعة، وتقرأ ملاحظاته ومواعيد امتحاناته ووقت دراسته. استخدمها لحالك أول ما تفيد، بدون ما تسأله "بدك أفتح الملف؟" — افتح وجاوب. إذا قال "محاضرة ٣" أو "أول ملف" افهمها بالترتيب.
+عندك أدوات: بتقدر تشوف واجباته، وتفتح ملفات أي مادة وتقرأها (list_course_files ثم open_course_file)، وتجيب تفاصيل أي واجب، وتشوف نقاط ضعفه، وتحفظله بطاقات مراجعة، وتقرأ ملاحظاته ومواعيد امتحاناته ووقت دراسته وعلاماته، وتدوّر جوّا ملفاته (search_my_files). استخدمها لحالك أول ما تفيد، بدون ما تسأله "بدك أفتح الملف؟" — افتح وجاوب. إذا قال "محاضرة ٣" أو "أول ملف" افهمها بالترتيب.
 ${weakSummary() ? "نقاط ضعفه من الكويزات التدريبية (ركّز عليها لما تشرح):\n" + weakSummary() : ""}
 بتقدر: ترتّبله الأولويات وتعمل خطط دراسة، تشرح أي مفهوم بأمثلة، تقرأ الصور اللي ببعتها (أسئلة، سلايدات، كود، أخطاء)، تراجع شغله وتعطيه ملاحظات، وتساعده بالبرمجة.
 ${AI.langRule()}
