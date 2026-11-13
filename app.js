@@ -1156,8 +1156,8 @@ window.startCallBasic = async () => {
     chatMsgs.push({ role: "user", text: text || "🎤 (مكالمة)" });
     abort = new AbortController(); speakQ = []; streamDone = false; let said = 0, full = "";
     try {
-      full = await AI.chat({ system: aiContext() + "\nهاي مكالمة صوتية مباشرة: رد بجمل قصيرة طبيعية كأنك بتحكي، بدون رموز أو قوائم أو جداول أو كود، 2-4 جمل بالكثير إلا إذا طلب شرح أطول. إذا الطالب حكى بالعربي رد بالعربي، وإذا بالإنجليزي رد بالإنجليزي.",
-        messages: callMsgs.slice(-12).map((m, i, a) => ({ ...m, audio: i === a.length - 1 ? m.audio : [] })), depth: "fast", signal: abort.signal, tools: aiTools(),
+      full = await AI.chat({ system: aiContext() + "\nهاي مكالمة صوتية مباشرة زي مكالمة تلفون مع صاحب شاطر: احكي باللهجة الأردنية الطبيعية (شو، هلأ، يعني، تمام، ولا يهمك، إشي) مش فصحى، جمل قصيرة ودافية فيها روح، بدون رموز أو قوائم أو كود، 1-3 جمل إلا إذا طلب شرح؛ وإذا شرحت قسّمه واسأله «ماشي لهون؟». المصطلحات التقنية بالإنجليزي. إذا حكى إنجليزي رد إنجليزي.",
+        messages: callMsgs.slice(-12).map((m, i, a) => ({ ...m, audio: i === a.length - 1 ? m.audio : [] })), depth: "smart", signal: abort.signal, tools: aiTools(),
         onText: t => {
           if (mode === "think") set("speak", "بحكي…");
           ctxEl.textContent = clean(t);
@@ -1176,10 +1176,11 @@ window.startCallBasic = async () => {
     set("listen", "بسمعك… احكي"); ctxEl.textContent = "";
     if (SR) {
       try {
-        sr = new SR(); sr.lang = srLang(); sr.interimResults = true; sr.continuous = false;
-        let final = "";
-        sr.onresult = e => { const t = [...e.results].map(r => r[0].transcript).join(" "); ctxEl.textContent = t; if (e.results[e.results.length - 1].isFinal) final = t; };
-        sr.onend = () => { if (!alive || mode !== "listen") return; if (final.trim()) think(final.trim()); else listen(); };
+        sr = new SR(); sr.lang = srLang(); sr.interimResults = true; sr.continuous = true;
+        let final = "", quiet = null;
+        sr.onresult = e => { const t = [...e.results].map(r => r[0].transcript).join(" "); ctxEl.textContent = t; final = t;
+          clearTimeout(quiet); quiet = setTimeout(() => { try { sr.stop(); } catch {} }, 1300); };
+        sr.onend = () => { clearTimeout(quiet); if (!alive || mode !== "listen") return; if (final.trim()) think(final.trim()); else listen(); };
         sr.onerror = ev => { if (ev.error === "not-allowed") { set("idle", "لازم تسمح للمايك 🎤"); alive && (muted = true); } };
         sr.start(); return;
       } catch {}
