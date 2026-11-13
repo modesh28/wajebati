@@ -375,4 +375,3 @@ window.featureTools = () => [
 ];
 examReminder();
 // direct links to feature pages (e.g. a challenge link) need the routes above, so route again now
-if (/^#(exam|cquiz|notes|gpa|timer|ch)/.test(location.hash)) route();

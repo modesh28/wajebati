@@ -155,11 +155,14 @@ routes.review = async () => {
 function go(r) { location.hash = r; }
 async function route() {
   const h = location.hash.slice(1) || "home";
+  if (/^owner-/.test(h) && window.accessGate) { accessGate(); return; }
   if (!Moodle.session && !/^(ch|room)-/.test(h)) { $tabbar.hidden = true; document.body.classList.add("no-tabs"); return viewLogin(); }
-  $tabbar.hidden = false; document.body.classList.remove("no-tabs");
   const [name, arg] = h.split(/-(.+)/);
+  if (!["ch", "room"].includes(name) && window.accessGate && !accessGate()) return;
+  $tabbar.hidden = false; document.body.classList.remove("no-tabs");
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.route === (["course", "assign", "quiz", "study"].includes(name) ? (name === "course" || name === "study" ? "courses" : "home") : name)));
   const fn = routes[name] || routes.home;
+  if (h !== route.last) { route.last = h; document.body.dataset.anim = "1"; clearTimeout(route.at); route.at = setTimeout(() => delete document.body.dataset.anim, 350); }
   if ((name === "ch" || name === "room") && !Moodle.session) { try { await fn(arg); } catch (e) { handleErr(e); } return; }
   try { await fn(arg); } catch (e) { handleErr(e); }
 }
@@ -1277,6 +1280,7 @@ routes.settings = async () => {
       <button data-th="dark" class="${(S.get("theme", "auto")) === "dark" ? "on" : ""}">🌙 ليلي</button>
       <button data-th="auto" class="${(S.get("theme", "auto")) === "auto" ? "on" : ""}">📱 تلقائي</button></div></div>
 
+    ${localStorage.getItem("owner.key") ? `<button class="card planbtn" onclick="go('admin')"><span>🔑</span><div><b>تفعيل الطلاب</b><div class="small muted">اعمل أكواد تفعيل للناس اللي بدك توافق عليهم</div></div></button>` : ""}
     <h2>عن التطبيق</h2>
     <div class="card small muted">واجباتي · نسخة 1.0 · مربوط مباشرة مع s1.ebalqa.courses<br>
       <a href="#" onclick="event.preventDefault();pull&&pull();go('home')">تحديث البيانات</a></div>
@@ -1309,7 +1313,7 @@ routes.settings = async () => {
 window.confirmOut = () => { try { return window.confirm("متأكد بدك تطلع؟ رح تنمسح بياناتك من هاد الجهاز (الملاحظات، البطاقات، المحادثات)."); } catch { return true; } };
 // logging out wipes everything personal from this device (someone else might log in next), keeps only theme + AI settings
 window.logout = async () => {
-  const keep = { "ai.settings": localStorage.getItem("ai.settings"), theme: localStorage.getItem("theme") };
+  const keep = Object.fromEntries(["ai.settings", "theme", "owner.key", "owner.log", "activation"].map(k => [k, localStorage.getItem(k)]));
   Moodle.logout();
   try { localStorage.clear(); for (const [k, v] of Object.entries(keep)) if (v !== null) localStorage.setItem(k, v); } catch {}
   try { indexedDB.deleteDatabase("wajebati"); } catch {}
@@ -1342,7 +1346,9 @@ function syncSessionToSW() {
 }
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && Moodle.session) refresh().then(() => { remindDeadlines(); syncSessionToSW(); if ((location.hash.slice(1) || "home") === "home") route(); }).catch(() => {}); });
 
-route().then(syncSessionToSW);
+// start once every script (features, rooms, approval…) is loaded
+document.addEventListener("DOMContentLoaded", () => route().then(syncSessionToSW));
+if (Moodle.session && !Moodle.session.username) Moodle.call("core_webservice_get_site_info").then(i => { if (i.username) { Moodle.session.username = i.username; S.set("mdl.session", Moodle.session); route(); } }).catch(() => {});
 
 document.getElementById("toast").addEventListener("click", e => e.currentTarget.hidden = true);
 

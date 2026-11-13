@@ -326,4 +326,3 @@ window.featureTools2 = () => [
 // background: check grades when the app opens (every 30 min at most)
 setTimeout(() => { if (Moodle.session) ensureData().then(() => checkGrades()).catch(() => {}); }, 4000);
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && Moodle.session) checkGrades().catch(() => {}); });
-if (/^#(grades|search|code|qattempt)/.test(location.hash)) route();

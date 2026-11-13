@@ -33,11 +33,12 @@ const Moodle = (() => {
       throw new Error(code === "invalidlogin" ? "الرقم الجامعي أو كلمة السر غلط" : code === "usernotfullysetup" ? "لازم تكمّل إعداد حسابك على موقع الإي ليرنينج أول"
         : /locked|suspended/i.test(code + j.error) ? "الحساب مقفول مؤقتاً، جرّب بعد شوي" : (j.error || "ما زبط تسجيل الدخول"));
     }
-    session = { token: j.token, privatetoken: j.privatetoken || null };
+    session = { token: j.token, privatetoken: j.privatetoken || null, username: String(username).trim() };
     const info = await call("core_webservice_get_site_info");
     session.userid = info.userid;
     session.fullname = info.fullname;
     session.picture = info.userpictureurl;
+    if (info.username) session.username = info.username;
     store.set("mdl.session", session);
     return session;
   }

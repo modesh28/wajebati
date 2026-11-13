@@ -208,4 +208,3 @@ routes.room = async (code) => {
   drawMembers(); drawTimer();
   addChat({ sys: R.isHost ? `عملت الغرفة ✓ ابعت الدعوة لصحابك 🔗` : `دخلت الغرفة ✓ شغّل المايك 🎤 عشان تحكي` });
 };
-if (/^#room/.test(location.hash)) route();
