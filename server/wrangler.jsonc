@@ -1,0 +1,8 @@
+{
+  // واجباتي — small server: remembers who already used the free trial (so reinstalling doesn't give a new one)
+  "name": "wajebati-server",
+  "main": "src/index.js",
+  "compatibility_date": "2025-10-01",
+  "kv_namespaces": [{ "binding": "WAJEBATI" }],
+  "vars": { "TRIAL_DAYS": "3" }
+}

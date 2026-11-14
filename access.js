@@ -93,16 +93,32 @@ window.isAppOwner = () => isOwner() || isOwnerId();
 const sessionUser = () => (Moodle.session && (Moodle.session.username || "")) || "";
 
 // free trial: one week from the first time a student opens the app, then it needs a subscription
-const TRIAL_DAYS = 7;
+const TRIAL_DAYS = 3;
+// the trial server (server/ folder, Cloudflare). Empty = trial is tracked on the phone only.
+const TRIAL_SERVER = "";
 const PAY = { cliq: "MOD287", name: "Mohammad Amer Salem Alshwiki", semester: 3, year: 5 };
 function trialLeft(user) {
   const u = String(user).toLowerCase(); if (!u) return 0;
+  // the server's answer wins: same dates on every phone and after reinstalling
+  const sv = S.get("trial.srv", null);
+  if (sv && sv.user === u) return Math.max(0, sv.end - (Date.now() + (sv.skew || 0)));
   let t = S.get("trial", null);
   if (!t || t.user !== u) { t = { user: u, start: Date.now(), seen: Date.now() }; S.set("trial", t); }
   // moving the phone's clock back doesn't bring the trial back
   if (Date.now() < (t.seen || 0) - 36e5) return 0;
   t.seen = Math.max(t.seen || 0, Date.now()); S.set("trial", t);
   return Math.max(0, t.start + TRIAL_DAYS * 864e5 - Date.now());
+}
+let trialSyncing = false;
+async function syncTrial(user) {
+  const u = String(user).toLowerCase(); if (!TRIAL_SERVER || !u || trialSyncing) return;
+  const sv = S.get("trial.srv", null); if (sv && sv.user === u && Date.now() - sv.t < 3 * 36e5) return;
+  trialSyncing = true;
+  try {
+    const r = await fetch(TRIAL_SERVER.replace(/\/$/, "") + "/trial", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ user: u }) });
+    const j = await r.json();
+    if (j && j.end) { S.set("trial.srv", { user: u, end: j.end, skew: j.now - Date.now(), t: Date.now() }); if (trialLeft(u) <= 0) route(); }
+  } catch {} finally { trialSyncing = false; }
 }
 const isActivated = (user) => { const a = S.get("activation", null); return !!(a && a.user === String(user).toLowerCase() && (a.exp === 0 || a.exp >= todayNum())); };
 // called by the router: returns true if the app may open
@@ -125,7 +141,8 @@ window.accessGate = () => {
     return true;
   }
   if (location.hash === "#subscribe") { viewActivate("trial"); return false; }
-  if (!(act && act.user === user.toLowerCase()) && trialLeft(user) > 0) return true; // still in the free week
+  if (!(act && act.user === user.toLowerCase())) syncTrial(user);
+  if (!(act && act.user === user.toLowerCase()) && trialLeft(user) > 0) return true; // still in the free trial
   viewActivate(act && act.user === user.toLowerCase() ? "expired" : "trialover");
   return false;
 };
@@ -135,7 +152,7 @@ function viewActivate(kind) {
   const user = sessionUser(), name = (Moodle.session.fullname || "");
   $app.innerHTML = `<div class="login"><div class="page" style="max-width:440px">
     <img class="logo" src="icons/icon-192.png" alt="">
-    <h1 style="margin:0 0 6px">${kind === "expired" ? "انتهى اشتراكك" : kind === "trial" ? "اشترك بواجباتي ✨" : kind === "trialover" ? "خلص أسبوع التجربة 🎁" : "التطبيق بده تفعيل"}</h1>
+    <h1 style="margin:0 0 6px">${kind === "expired" ? "انتهى اشتراكك" : kind === "trial" ? "اشترك بواجباتي ✨" : kind === "trialover" ? "خلصت التجربة المجانية 🎁" : "التطبيق بده تفعيل"}</h1>
     <p class="muted" style="margin:0 0 16px">${kind === "expired" ? "جدّد الاشتراك عشان ترجع تستخدم واجباتي." : kind === "trial" ? `باقيلك ${Math.ceil(trialLeft(user) / 864e5)} أيام من التجربة المجانية. اشترك هلأ عشان ما يوقف.` : kind === "trialover" ? "إن شاء الله عجبك! اشترك عشان تكمّل." : "واجباتي خاص، وبيشتغل بعد ما صاحب التطبيق يوافق عليك."}</p>
     <div class="card"><b>💳 الاشتراك</b>
       <div class="seg" id="aplan" style="margin:10px 0"><button data-d="120" class="on">فصل · ${PAY.semester} دنانير</button><button data-d="365">سنة · ${PAY.year} دنانير</button></div>

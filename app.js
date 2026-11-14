@@ -181,7 +181,7 @@ function viewLogin() {
     <h1 style="margin:0 0 4px">واجباتي</h1>
     <p class="muted" style="margin:0 0 14px">سجّل دخول بنفس حساب الإي ليرنينج تبع جامعة البلقاء.</p>
     <div class="card" style="display:flex;gap:10px;align-items:center;margin-bottom:18px;border:1.5px solid var(--accent)"><div style="font-size:26px">🎁</div>
-      <div><b>أسبوع تجربة مجاناً</b><div class="small muted">بعدها <b>3 دنانير للفصل</b> أو <b>5 دنانير للسنة</b> · الدفع على CliQ</div></div></div>
+      <div><b>3 أيام تجربة مجاناً</b><div class="small muted">بعدها <b>3 دنانير للفصل</b> أو <b>5 دنانير للسنة</b> · الدفع على CliQ</div></div></div>
     <div id="lerr"></div>
     <form id="lf">
       <div class="field"><label>الرقم الجامعي</label><input class="input" name="u" inputmode="numeric" autocomplete="username" required></div>
@@ -248,7 +248,7 @@ routes.home = async () => {
         <div class="stat"><b>${week}</b><span>هالأسبوع</span></div>
         <div class="stat"><b>${quizzes}</b><span>كويزات</span></div>
       </div>
-      ${!AI.ready() ? `<button class="card planbtn" onclick="go('settings')"><span>✨</span><div><b>فعّل المساعد الذكي</b><div class="small muted">حط مفتاح الذكاء الاصطناعي مرة وحدة (دقيقة) وبتشتغل كل أدوات الدراسة</div></div></button>` : ""}
+      ${!AI.ready() ? `<button class="card planbtn" onclick="go('aikey')"><span>✨</span><div><b>فعّل المساعد الذكي</b><div class="small muted">حط مفتاح الذكاء الاصطناعي مرة وحدة (دقيقة) وبتشتغل كل أدوات الدراسة</div></div></button>` : ""}
       <div id="brief"></div>
       ${srsDue().length ? `<button class="card planbtn" onclick="go('review')"><span>🧠</span><div><b>مراجعة اليوم: ${srsDue().length} بطاقة</b><div class="small muted">دقايق مراجعة بتثبّت اللي درسته</div></div></button>` : ""}
       ${window.homeExtras ? homeExtras() : ""}
@@ -403,7 +403,7 @@ routes.study = async (arg) => {
       <a class="btn" href="${esc(fileLink)}" target="_blank" rel="noopener" onclick="buzz()">📥 افتح الملف</a>
     </div>
     <div id="ferr"></div>
-    ${!AI.ready() ? `<div class="card"><b>حط مفتاح الـ AI أول</b><div class="btns"><button class="btn primary" onclick="go('settings')">الإعدادات</button></div></div>` : `
+    ${!AI.ready() ? `<div class="card"><b>فعّل المساعد الذكي أول (دقيقة وحدة)</b><div class="btns"><button class="btn primary" onclick="go('aikey')">✨ فعّله خطوة بخطوة</button></div></div>` : `
     <div class="tools" id="tools">
       <button class="tool on" data-t="zero"><span>🎓</span>من الصفر</button>
       <button class="tool" data-t="summary"><span>📝</span>ملخّص</button>
@@ -1009,7 +1009,7 @@ routes.ai = async () => {
   $app.innerHTML = `<div class="page chatpage">
     <div class="top"><div><h1>المساعد ✨</h1><div class="sub" id="aimodel">مساعدك الدراسي الذكي · شغّال ٢٤ ساعة</div></div>
       <div style="display:flex;gap:6px">${ready ? `<button class="back callbtn" onclick="startCall()">📞 مكالمة</button>` : ""}${chatMsgs.length ? `<button class="back" onclick="newChat()">جديدة</button>` : ""}</div></div>
-    ${!ready ? `<div class="card"><b>لازم تحط مفتاح الـ AI أول مرة</b><p class="small muted" style="margin:6px 0 10px">المفتاح بيتخزّن على تلفونك بس، وما بيروح لأي مكان غير الشركة نفسها.</p><button class="btn primary" onclick="go('settings')">افتح الإعدادات</button></div>` : ""}
+    ${!ready ? `<div class="card"><b>لازم تحط مفتاح الـ AI أول مرة</b><p class="small muted" style="margin:6px 0 10px">المفتاح بيتخزّن على تلفونك بس، وما بيروح لأي مكان غير الشركة نفسها.</p><button class="btn primary" onclick="go('aikey')">✨ فعّله خطوة بخطوة</button></div>` : ""}
     <div class="chat" id="chat"></div>
     ${!chatMsgs.length && ready ? `<div class="sugg" id="sugg">
       <button class="chip">شو أبلّش فيه هلأ؟</button>
@@ -1293,7 +1293,7 @@ routes.settings = async () => {
     <div class="card">
       <div id="pgemini">
         <div class="field"><label>مفتاح الذكاء الاصطناعي (API key)</label><input class="input" id="gk" type="password" dir="ltr" placeholder="AIza…" value="${esc(s.geminiKey)}">
-          <div class="hint">من <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a></div></div>
+          <div class="hint">ما عندك مفتاح؟ <a href="#aikey">✨ جهّزه خطوة بخطوة</a></div></div>
         <label class="field" style="display:flex;gap:10px;align-items:flex-start;cursor:pointer"><input type="checkbox" id="gauto" ${s.geminiAuto ? "checked" : ""} style="margin-top:5px;width:18px;height:18px">
           <span><b>تبديل تلقائي بين الموديلات</b><span class="hint" style="display:block">بيستخدم أذكى موديل متاح، ولما يوصل حده بيحوّل للي بعده لحاله.</span></span></label>
         <div class="field" id="gmwrap" ${s.geminiAuto ? "hidden" : ""}><label>الموديل</label><input class="input" id="gm" dir="ltr" value="${esc(s.geminiModel)}"></div>
@@ -1345,7 +1345,7 @@ routes.settings = async () => {
 window.confirmOut = () => { try { return window.confirm("متأكد بدك تطلع؟ رح تنمسح بياناتك من هاد الجهاز (الملاحظات، البطاقات، المحادثات)."); } catch { return true; } };
 // logging out wipes everything personal from this device (someone else might log in next), keeps only theme + AI settings
 window.logout = async () => {
-  const keep = Object.fromEntries(["ai.settings", "theme", "owner.key", "owner.log", "activation"].map(k => [k, localStorage.getItem(k)]));
+  const keep = Object.fromEntries(["ai.settings", "theme", "owner.key", "owner.log", "owner.reqs", "owner.done", "owner.ping", "activation", "trial", "trial.srv"].map(k => [k, localStorage.getItem(k)]));
   Moodle.logout();
   try { localStorage.clear(); for (const [k, v] of Object.entries(keep)) if (v !== null) localStorage.setItem(k, v); } catch {}
   try { indexedDB.deleteDatabase("wajebati"); } catch {}

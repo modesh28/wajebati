@@ -413,3 +413,45 @@ window.featureTools2 = () => [
 // background: check grades when the app opens (every 30 min at most)
 setTimeout(() => { if (Moodle.session) ensureData().then(() => checkGrades()).catch(() => {}); }, 4000);
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && Moodle.session) checkGrades().catch(() => {}); });
+
+/* ---------- AI key, step by step: open Google, copy, come back, paste — the app checks it and saves it ---------- */
+routes.aikey = async () => {
+  const has = AI.ready();
+  $app.innerHTML = `<div class="page enter" style="max-width:520px"><div class="top"><button class="back" onclick="history.back()">→ رجوع</button></div>
+    <h1 style="margin:0 0 4px;font-size:24px">✨ فعّل المساعد الذكي</h1>
+    <p class="muted" style="margin:0 0 14px">بتعمل مفتاح مجاني من Google مرة وحدة بس، وبتاخد دقيقة. ${has ? "<b>(عندك مفتاح شغّال، بتقدر تغيّره)</b>" : ""}</p>
+    <div class="card"><div style="display:flex;gap:10px;align-items:center"><span class="pill ok" style="font-size:15px">1</span><b>افتح صفحة المفاتيح عند Google</b></div>
+      <p class="small muted" style="margin:8px 0">سجّل دخول بإيميل Gmail تبعك إذا طلب، ووافق على الشروط إذا طلعتلك.</p>
+      <a class="btn primary block" id="kopen" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">🔑 افتح Google AI Studio</a></div>
+    <div class="card"><div style="display:flex;gap:10px;align-items:center"><span class="pill ok" style="font-size:15px">2</span><b>اكبس «Create API key»</b></div>
+      <p class="small muted" style="margin:8px 0 0">إذا سألك عن مشروع اختار أي واحد أو «Create project». بيطلعلك مفتاح بيبلّش بـ <b dir="ltr">AIza</b>، اكبس نسخ (Copy) جنبه.</p></div>
+    <div class="card" id="kstep3"><div style="display:flex;gap:10px;align-items:center"><span class="pill ok" style="font-size:15px">3</span><b>ارجع هون والصقه</b></div>
+      <button class="btn primary block" id="kpaste" style="margin-top:10px">📋 الصق المفتاح</button>
+      <input class="input" id="kin" dir="ltr" placeholder="أو الصقه هون بإيدك: AIza…" autocomplete="off" autocapitalize="off" spellcheck="false" style="margin-top:8px">
+      <div id="kmsg" style="margin-top:8px"></div></div>
+    <p class="small muted">🔒 المفتاح بيتخزّن على تلفونك بس، وما بيروح لأي مكان غير Google نفسها. ومجاني، ما بيطلب منك بطاقة.</p></div>`;
+  const msg = (h) => { document.getElementById("kmsg").innerHTML = h; };
+  const tryKey = async (raw) => {
+    const m = String(raw || "").match(/AIza[0-9A-Za-z_\-]{30,}/);
+    if (!m) { msg(`<div class="err">هاد مش مفتاح. المفتاح بيبلّش بـ AIza، ارجع انسخه من صفحة Google.</div>`); return; }
+    const key = m[0]; document.getElementById("kin").value = key;
+    msg(`<div class="small muted">⏳ بتأكد إنه شغّال…</div>`);
+    let ok = null;
+    try { const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=1&key=${encodeURIComponent(key)}`); ok = r.ok ? true : (r.status === 400 || r.status === 403) ? false : null; } catch { ok = null; }
+    if (ok === false) { msg(`<div class="err">Google رفض المفتاح. تأكد إنك نسخته كامل، أو اعمل مفتاح جديد.</div>`); return; }
+    AI.save({ provider: "gemini", geminiKey: key, geminiAuto: true }); S.del("ai.freechain"); S.del("ai.cooldown");
+    try { AI.freeChain(key); } catch {}
+    buzz(); window.confetti && confetti();
+    document.getElementById("kstep3").innerHTML = `<div style="text-align:center"><div style="font-size:44px">🎉</div><b>المساعد صار جاهز${ok === null ? " (انحفظ، وبنتأكد منه أول ما يرجع النت)" : ""}</b>
+      <button class="btn primary block" style="margin-top:12px" onclick="go('ai')">جرّبه هلأ ✨</button></div>`;
+  };
+  document.getElementById("kpaste").onclick = async () => {
+    try { const t = await navigator.clipboard.readText(); if (t) return tryKey(t); } catch {}
+    msg(`<div class="small muted">التلفون ما سمح بالقراءة من النسخ. اكبس مطوّل على الخانة تحت واختار «لصق».</div>`); document.getElementById("kin").focus();
+  };
+  document.getElementById("kin").addEventListener("input", e => { if (/AIza[0-9A-Za-z_\-]{30,}/.test(e.target.value)) tryKey(e.target.value); });
+  // coming back from Google: point at the paste button
+  const onBack = () => { if (document.visibilityState !== "visible") return; const s3 = document.getElementById("kstep3"); if (!s3) return document.removeEventListener("visibilitychange", onBack);
+    if (document.getElementById("kpaste")) { s3.scrollIntoView({ behavior: "smooth", block: "center" }); s3.style.boxShadow = "0 0 0 3px var(--accent)"; } };
+  document.addEventListener("visibilitychange", onBack);
+};
