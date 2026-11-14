@@ -288,7 +288,7 @@ routes.qattempt = async (quizid) => {
   const demo = quizid === "demo";
   if (!demo) await ensureData();
   const call = demo ? demoQuiz.call : (fn, params) => Moodle.call(fn, params);
-  if (demo) demoQuiz.reset();
+  if (demo && !(window.activeQuiz && activeQuiz.id === "demo")) demoQuiz.reset();
   const q = demo ? { name: "كويز تجريبي 🧪", coursename: "تجربة قبل الإطلاق", timelimit: 300, cmid: null } : data.items.find(i => i.kind === "quiz" && i.id == quizid);
   $app.innerHTML = `<div class="page enter">${skel(3)}</div>`;
   const fail = (msg) => { $app.innerHTML = `<div class="page"><div class="top"><button class="back" onclick="history.back()">→ رجوع</button></div><div class="err">${esc(msg)}</div>
@@ -300,7 +300,8 @@ routes.qattempt = async (quizid) => {
     if (!attempt) attempt = (await call("mod_quiz_start_attempt", { quizid })).attempt;
   } catch (e) { return fail(/password|preflight/i.test(e.message) ? "هاد الكويز بده كلمة سر، افتحه بالإي ليرنينج." : "ما قدرت أبلّش الكويز: " + e.message); }
   const limit = q && q.timelimit ? q.timelimit : 0, endAt = limit ? (attempt.timestart + limit) * 1000 : (q && q.due ? q.due * 1000 : 0);
-  let page = attempt.currentpage || 0, total = null, timerIv = null, busy = false;
+  let page = (window.activeQuiz && activeQuiz.id === quizid ? activeQuiz.page : attempt.currentpage) || 0, total = null, timerIv = null, busy = false;
+  window.activeQuiz = { id: quizid, name: q ? q.name : "كويز", endAt, page, attemptid: attempt.id, call };
   const collect = () => {
     const out = []; const seen = new Set();
     $app.querySelectorAll(".qform input, .qform select, .qform textarea").forEach(el => {
@@ -314,7 +315,7 @@ routes.qattempt = async (quizid) => {
   async function show(p) {
     busy = true;
     let d; try { d = await call("mod_quiz_get_attempt_data", { attemptid: attempt.id, page: p }); } catch (e) { busy = false; return fail("ما قدرت أجيب الأسئلة: " + e.message); }
-    page = p; busy = false;
+    page = p; busy = false; if (window.activeQuiz) activeQuiz.page = p;
     const qs = d.questions || [];
     $app.innerHTML = `<div class="page enter">
       <div class="top"><button class="back" id="qx">→ رجوع</button>${endAt ? `<span class="pill soon" id="qtime"></span>` : ""}</div>
@@ -331,7 +332,10 @@ routes.qattempt = async (quizid) => {
     $app.querySelectorAll(".qhtml input[type=radio], .qhtml input[type=checkbox]").forEach(i => { const lab = i.closest("div,label"); lab && lab.classList.add("qopt"); });
     const unsupported = $app.querySelectorAll(".qhtml .ddarea, .qhtml .drags, .qhtml .ddmarker, .qhtml .ddwtos").length;
     if (unsupported) $app.querySelector(".qform").insertAdjacentHTML("afterbegin", `<div class="note">في سؤال سحب وإفلات ما بيشتغل هون. حلّه من الإي ليرنينج.</div>`);
-    const save = async (finish) => { const dataArr = collect(); return finish ? call("mod_quiz_process_attempt", { attemptid: attempt.id, data: dataArr, finishattempt: 1, timeup: 0 }) : call("mod_quiz_save_attempt", { attemptid: attempt.id, data: dataArr }); };
+    // keep a live copy of your answers, so they're saved even after you've switched to another screen
+    let lastData = collect();
+    const form = $app.querySelector(".qform"); ["input", "change"].forEach(ev => form.addEventListener(ev, () => { lastData = collect(); }));
+    const save = async (finish) => { const dataArr = document.body.contains(form) ? collect() : lastData; return finish ? call("mod_quiz_process_attempt", { attemptid: attempt.id, data: dataArr, finishattempt: 1, timeup: 0 }) : call("mod_quiz_save_attempt", { attemptid: attempt.id, data: dataArr }); };
     const nav = async (np) => { if (busy) return; busy = true; try { await save(false); } catch {} busy = false; show(np); };
     const prev = document.getElementById("qprev"); if (prev) prev.onclick = () => nav(p - 1);
     const next = document.getElementById("qnext"); if (next) next.onclick = () => nav(d.nextpage);
@@ -340,12 +344,16 @@ routes.qattempt = async (quizid) => {
       sheet(`<h3 style="margin:0 0 8px">تسليم الكويز؟</h3><p class="muted">بعد التسليم ما بتقدر تغيّر إجاباتك.</p><button class="btn primary block" id="qyes">✓ سلّم</button>`);
       document.getElementById("qyes").onclick = async () => { document.querySelector(".sheet-wrap").remove(); finish(false); };
     };
-    document.getElementById("qx").onclick = async () => { try { await save(false); } catch {} clearInterval(timerIv); history.back(); };
+    document.getElementById("qx").onclick = () => history.back();
+    window.removeEventListener("hashchange", window.__quizLeave || (() => {}));
+    window.__quizLeave = () => { if (location.hash !== "#qattempt-" + quizid) { clearInterval(timerIv); save(false).catch(() => {}); window.removeEventListener("hashchange", window.__quizLeave); quizPill(); } };
+    window.addEventListener("hashchange", window.__quizLeave);
     // countdown; submits by itself when time runs out
     clearInterval(timerIv);
     if (endAt) { const tick = () => { const el = document.getElementById("qtime"); if (!el) return clearInterval(timerIv); const l = Math.floor((endAt - Date.now()) / 1000);
       if (l <= 0) { clearInterval(timerIv); finish(true); return; } el.textContent = `⏱️ ${Math.floor(l / 60)}:${String(l % 60).padStart(2, "0")}`; el.className = "pill " + (l < 120 ? "urgent" : "soon"); }; tick(); timerIv = setInterval(tick, 1000); }
     async function finish(timeup) {
+      window.removeEventListener("hashchange", window.__quizLeave || (() => {})); window.activeQuiz = null; quizPill();
       clearInterval(timerIv); $app.querySelector(".page").insertAdjacentHTML("beforeend", `<div class="card answer"></div>`); const w = waiter($app.querySelector(".card.answer")); w.status("tool", "بسلّم الكويز…");
       try {
         await call("mod_quiz_process_attempt", { attemptid: attempt.id, data: collect(), finishattempt: 1, timeup: timeup ? 1 : 0 });
@@ -360,6 +368,28 @@ routes.qattempt = async (quizid) => {
   }
   show(page);
 };
+
+function quizPill() {
+  let el = document.getElementById("quizpill");
+  const a = window.activeQuiz;
+  if (!a || location.hash === "#qattempt-" + a.id) { if (el) el.remove(); return; }
+  if (!el) { el = document.createElement("button"); el.id = "quizpill"; el.className = "quizpill"; document.body.appendChild(el); }
+  el.onclick = () => go("qattempt-" + a.id);
+  const tick = () => {
+    if (!window.activeQuiz || !document.body.contains(el)) return;
+    const l = a.endAt ? Math.floor((a.endAt - Date.now()) / 1000) : null;
+    if (l !== null && l <= 0) { // time's up while you were away: hand it in with the saved answers
+      window.activeQuiz = null; el.remove();
+      a.call("mod_quiz_process_attempt", { attemptid: a.attemptid, data: [], finishattempt: 1, timeup: 1 }).then(() => toast("⏱️ خلص وقت الكويز وتسلّم بإجاباتك المحفوظة", 4000)).catch(() => toast("خلص وقت الكويز", 4000));
+      return;
+    }
+    el.innerHTML = `<span>📝 ${esc(a.name)}</span>${l !== null ? `<b>⏱️ ${Math.floor(l / 60)}:${String(l % 60).padStart(2, "0")}</b>` : ""}<span class="qp-go">ارجع للكويز ←</span>`;
+    el.classList.toggle("hurry", l !== null && l < 120);
+    setTimeout(tick, 1000);
+  };
+  tick();
+}
+window.addEventListener("hashchange", () => setTimeout(quizPill, 0));
 
 /* ======================= hooks ======================= */
 window.featureTools2 = () => [

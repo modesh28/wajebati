@@ -442,3 +442,8 @@ body.no-tabs .rbar{bottom:calc(10px + var(--safe-b))}
 .seg.wrap button{flex:1 1 auto;white-space:nowrap}
 .call-mode{font-size:12px;opacity:.7;margin-top:4px}
 .call-score{font-weight:700;font-size:16px;background:rgba(255,255,255,.1);padding:4px 14px;border-radius:999px}
+.quizpill{position:fixed;left:12px;right:12px;bottom:calc(84px + var(--safe-b));z-index:25;display:flex;align-items:center;gap:10px;justify-content:space-between;padding:12px 16px;border-radius:16px;border:0;background:var(--accent);color:var(--accent-ink);font:inherit;font-weight:700;font-size:14px;box-shadow:0 10px 26px rgba(0,0,0,.25);cursor:pointer;animation:enter .25s}
+.quizpill span:first-child{flex:1;text-align:start;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.quizpill b{font-variant-numeric:tabular-nums}
+.quizpill .qp-go{opacity:.9;white-space:nowrap}
+.quizpill.hurry{background:var(--red);color:#fff;animation:pulse 1s infinite}
