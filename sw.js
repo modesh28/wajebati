@@ -1,6 +1,6 @@
 /* Service worker: offline app shell + background checks (Android Chrome, installed app) + notification clicks */
-const CACHE = "wajebati-v46";
-const SHELL = ["./", "index.html", "styles.css?v=46", "moodle.js?v=46", "ai.js?v=46", "app.js?v=46", "study.js?v=46", "features.js?v=46", "features2.js?v=46", "rooms.js?v=46", "voice.js?v=46", "access.js?v=46", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png"];
+const CACHE = "wajebati-v48";
+const SHELL = ["./", "index.html", "styles.css?v=48", "moodle.js?v=48", "ai.js?v=48", "app.js?v=48", "study.js?v=48", "features.js?v=48", "features2.js?v=48", "rooms.js?v=48", "voice.js?v=48", "access.js?v=48", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png"];
 const SITE = "https://s1.ebalqa.courses";
 
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });

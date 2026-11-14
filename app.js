@@ -160,7 +160,7 @@ async function route() {
   const [name, arg] = h.split(/-(.+)/);
   if (!["ch", "room"].includes(name) && window.accessGate && !accessGate()) return;
   $tabbar.hidden = false; document.body.classList.remove("no-tabs");
-  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.route === (["course", "assign", "quiz", "study"].includes(name) ? (name === "course" || name === "study" ? "courses" : "home") : name)));
+  document.querySelectorAll(".tab:not(#quiztab)").forEach(t => t.classList.toggle("on", t.dataset.route === (["course", "assign", "quiz", "study"].includes(name) ? (name === "course" || name === "study" ? "courses" : "home") : name)));
   const fn = routes[name] || routes.home;
   if (h !== route.last) { route.last = h; document.body.dataset.anim = "1"; clearTimeout(route.at); route.at = setTimeout(() => delete document.body.dataset.anim, 350); }
   if ((name === "ch" || name === "room") && !Moodle.session) { try { await fn(arg); } catch (e) { handleErr(e); } return; }
