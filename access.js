@@ -95,7 +95,7 @@ const sessionUser = () => (Moodle.session && (Moodle.session.username || "")) ||
 // free trial: one week from the first time a student opens the app, then it needs a subscription
 const TRIAL_DAYS = 3;
 // the trial server (server/ folder, Cloudflare). Empty = trial is tracked on the phone only.
-const TRIAL_SERVER = "";
+const TRIAL_SERVER = "https://wajebati-server.ut6uhhji.workers.dev";
 const PAY = { cliq: "MOD287", name: "Mohammad Amer Salem Alshwiki", semester: 3, year: 5 };
 function trialLeft(user) {
   const u = String(user).toLowerCase(); if (!u) return 0;
