@@ -1,5 +1,5 @@
 /* Service worker: offline app shell + background checks (Android Chrome, installed app) + notification clicks */
-const CACHE = "wajebati-v49";
+const CACHE = "wajebati-v50";
 const SHELL = ["./", "index.html", "styles.css?v=48", "moodle.js?v=48", "ai.js?v=48", "app.js?v=48", "study.js?v=48", "features.js?v=48", "features2.js?v=48", "rooms.js?v=48", "voice.js?v=48", "access.js?v=48", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png"];
 const SITE = "https://s1.ebalqa.courses";
 
@@ -31,7 +31,7 @@ async function backgroundCheck() {
   if (!session || !session.token) return;
   const body = new URLSearchParams({ wstoken: session.token, wsfunction: "core_calendar_get_action_events_by_timesort",
     timesortfrom: Math.floor(Date.now() / 1000), limitnum: 50 });
-  const r = await fetch(`${SITE}/webservice/rest/server.php?moodlewsrestformat=json`, { method: "POST", body });
+  const r = await fetch(`${session.site || SITE}/webservice/rest/server.php?moodlewsrestformat=json`, { method: "POST", body });
   const j = await r.json(); if (!j.events) return;
   const knownSet = new Set(known);
   const fresh = j.events.filter(ev => !knownSet.has(`${ev.modulename}:${ev.instance}`));

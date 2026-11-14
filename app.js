@@ -184,16 +184,25 @@ function viewLogin() {
     <form id="lf">
       <div class="field"><label>الرقم الجامعي</label><input class="input" name="u" inputmode="numeric" autocomplete="username" required></div>
       <div class="field"><label>كلمة السر</label><input class="input" name="p" type="password" autocomplete="current-password" required></div>
+      <div class="field"><label>كليتك</label><select class="input" name="site" id="lsite">
+        <option value="">🔎 لاقيها لحالك (مستحسن)</option>
+        ${Moodle.SITES.map(x => `<option value="${x.url}">${esc(x.name)}</option>`).join("")}
+        <option value="other">كلية ثانية… (بلصق رابط الإي ليرنينج)</option></select></div>
+      <div class="field" id="lother" hidden><label>رابط الإي ليرنينج تبع كليتك</label><input class="input" name="url" dir="ltr" inputmode="url" placeholder="s2.ebalqa.courses/nfetmoodle">
+        <div class="small muted" style="margin-top:4px">افتح الإي ليرنينج تبعك من المتصفح وانسخ الرابط من فوق، والصقه هون.</div></div>
       <button class="btn primary block" id="lb">تسجيل الدخول</button>
     </form>
     <p class="small muted" style="margin-top:16px">🔒 كلمة السر بتروح مباشرة لموقع الجامعة وما بتنحفظ. التطبيق بيحتفظ بمفتاح دخول على هاد الجهاز بس.</p>
   </div></div>`;
+  document.getElementById("lsite").onchange = e => { document.getElementById("lother").hidden = e.target.value !== "other"; };
   document.getElementById("lf").onsubmit = async e => {
     e.preventDefault();
     const f = e.target, b = document.getElementById("lb");
-    b.disabled = true; b.textContent = "لحظة…";
+    const choice = f.site.value === "other" ? f.url.value.trim() : f.site.value;
+    if (f.site.value === "other" && !Moodle.normSite(choice)) { document.getElementById("lerr").innerHTML = `<div class="err">الصق رابط الإي ليرنينج تبع كليتك</div>`; return; }
+    b.disabled = true; b.textContent = choice ? "لحظة…" : "بدوّر على كليتك…";
     try {
-      await Moodle.login(f.u.value.trim(), f.p.value);
+      await Moodle.login(f.u.value.trim(), f.p.value, choice);
       f.p.value = "";
       go("home"); route();
     } catch (err) {
@@ -1303,7 +1312,7 @@ routes.settings = async () => {
     ${window.isAppOwner && isAppOwner() ? `<button class="card planbtn" onclick="go('admin')"><span>🔑</span><div><b>تفعيل الطلاب</b><div class="small muted">اعمل أكواد تفعيل للناس اللي بدك توافق عليهم</div></div></button>` : ""}
     <button class="card planbtn" onclick="go('qattempt-demo')"><span>🧪</span><div><b>جرّب كويز تجريبي</b><div class="small muted">كويز وهمي عشان تجرّب شاشة حل الكويزات (ما بينحسب)</div></div></button>
     <h2>عن التطبيق</h2>
-    <div class="card small muted">واجباتي · نسخة 1.0 · مربوط مباشرة مع s1.ebalqa.courses<br>
+    <div class="card small muted">واجباتي · نسخة 1.0 · مربوط مباشرة مع ${esc((Moodle.session && Moodle.session.sitename) || "")} <span dir="ltr">${esc(Moodle.SITE.replace(/^https:\/\//, ""))}</span><br>
       <a href="#" onclick="event.preventDefault();pull&&pull();go('home')">تحديث البيانات</a></div>
   </div>`;
   document.getElementById("theme").onclick = e => { const b = e.target.closest("button"); if (!b) return; S.set("theme", b.dataset.th); applyTheme(); buzz(); document.querySelectorAll("#theme button").forEach(x => x.classList.toggle("on", x === b)); };

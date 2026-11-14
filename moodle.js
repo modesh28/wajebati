@@ -1,12 +1,26 @@
 /* Moodle Web Services client — talks directly to the university's e-learning from the phone. */
 const Moodle = (() => {
-  const SITE = "https://s1.ebalqa.courses";
+  // BAU has a separate e-learning server for some colleges. Known ones are tried automatically;
+  // a student from another college can paste their e-learning link.
+  const DEFAULT_SITE = "https://s1.ebalqa.courses";
+  const SITES = [
+    { url: "https://s1.ebalqa.courses", name: "جامعة البلقاء (الإي ليرنينج الرئيسي)" },
+    { url: "https://s2.ebalqa.courses/nfetmoodle", name: "كلية الهندسة التكنولوجية" },
+    { url: "https://s1.ebalqa.courses/ncentermoodle", name: "منصة المركز (ncentermoodle)" }
+  ];
+  // turn whatever the student pasted (…/login/index.php, …/my/, no https) into the site's base address
+  function normSite(u) {
+    u = String(u || "").trim(); if (!u) return "";
+    if (!/^https?:\/\//i.test(u)) u = "https://" + u;
+    try { const x = new URL(u); let path = x.pathname.replace(/\/(login|my|course|mod|user|admin|calendar|grade|webservice|pluginfile\.php|index\.php)(\/.*)?$/i, "").replace(/\/+$/, ""); return (x.origin + path).replace(/^http:/, "https:"); } catch { return ""; }
+  }
   const store = {
     get(k, d = null) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
     del(k) { try { localStorage.removeItem(k); } catch {} }
   };
   let session = store.get("mdl.session");
+  const site = () => (session && session.site) || store.get("mdl.site") || DEFAULT_SITE;
   // Moodle sends names with HTML entities (V&amp;V) — turn them into plain text
   const decode = (t) => { if (!t || !/[&]/.test(t)) return t; const el = document.createElement("textarea"); el.innerHTML = t; return el.value; }; // {token, privatetoken, userid, fullname, picture}
 
@@ -22,24 +36,57 @@ const Moodle = (() => {
     return out;
   }
 
-  async function login(username, password) {
+  // ask one e-learning server for a login token
+  async function tokenFrom(base, username, password) {
     const body = new URLSearchParams({ username, password, service: "moodle_mobile_app" });
     let r;
-    try { r = await fetch(`${SITE}/login/token.php`, { method: "POST", body }); }
-    catch { throw new Error(navigator.onLine === false ? "إنت مش متصل بالنت 📶" : "ما قدرت أوصل لموقع الجامعة، جرّب كمان شوي"); }
-    const j = await r.json().catch(() => ({}));
-    if (!j.token) {
-      const code = j.errorcode || "";
-      throw new Error(code === "invalidlogin" ? "الرقم الجامعي أو كلمة السر غلط" : code === "usernotfullysetup" ? "لازم تكمّل إعداد حسابك على موقع الإي ليرنينج أول"
-        : /locked|suspended/i.test(code + j.error) ? "الحساب مقفول مؤقتاً، جرّب بعد شوي" : (j.error || "ما زبط تسجيل الدخول"));
+    try { r = await fetch(`${base}/login/token.php`, { method: "POST", body, signal: AbortSignal.timeout ? AbortSignal.timeout(15000) : undefined }); }
+    catch { return { net: true }; }
+    const j = await r.json().catch(() => null);
+    if (!j) return { net: true };
+    return j;
+  }
+  function loginError(j) {
+    const code = (j && j.errorcode) || "";
+    return code === "invalidlogin" ? "الرقم الجامعي أو كلمة السر غلط" : code === "usernotfullysetup" ? "لازم تكمّل إعداد حسابك على موقع الإي ليرنينج أول"
+      : /enablews|servicenotavailable|webservicesnotenabled/i.test(code + (j && j.error)) ? "الإي ليرنينج تبع كليتك مسكّر خدمة تطبيقات الموبايل، فما بنقدر نتصل فيه من التطبيق."
+      : /locked|suspended/i.test(code + (j && j.error)) ? "الحساب مقفول مؤقتاً، جرّب بعد شوي" : ((j && j.error) || "ما زبط تسجيل الدخول");
+  }
+  // siteChoice: "" = find the student's college automatically, or a site address
+  async function login(username, password, siteChoice = "") {
+    username = String(username).trim();
+    let base = normSite(siteChoice), j;
+    if (base) {
+      j = await tokenFrom(base, username, password);
+      if (j.net) throw new Error(navigator.onLine === false ? "إنت مش متصل بالنت 📶" : "ما قدرت أوصل لهاد الرابط. تأكد إنه رابط الإي ليرنينج تبع كليتك، أو إنه موقعهم ما بيسمح بالاتصال من التطبيقات.");
+      if (!j.token) throw new Error(loginError(j));
+    } else {
+      // try the last used server first, then all known ones at the same time; keep the one that accepts the account
+      const order = [...new Set([store.get("mdl.site"), ...SITES.map(x => x.url)].filter(Boolean))];
+      const results = await new Promise(resolve => {
+        const out = new Array(order.length); let left = order.length, done = false;
+        // keep the order's preference (main site first) but don't wait for slower servers after an answer
+        const check = () => { if (done) return; for (let i = 0; i < order.length; i++) { if (out[i] === undefined) return; if (out[i].token) { done = true; return resolve({ win: i, out }); } } if (!left) { done = true; resolve({ win: -1, out }); } };
+        order.forEach((b, i) => tokenFrom(b, username, password).then(r => { out[i] = r; left--; check(); }));
+        setTimeout(() => { if (done) return; const i = out.findIndex(r => r && r.token); if (i >= 0) { done = true; resolve({ win: i, out }); } }, 6000);
+      });
+      if (results.win < 0) {
+        const rs = results.out;
+        if (rs.every(r => r.net)) throw new Error(navigator.onLine === false ? "إنت مش متصل بالنت 📶" : "ما قدرت أوصل لموقع الجامعة، جرّب كمان شوي");
+        const real = rs.find(r => !r.net && r.errorcode && r.errorcode !== "invalidlogin");
+        if (real) throw new Error(loginError(real));
+        throw new Error("الرقم الجامعي أو كلمة السر غلط. إذا كليتك إلها إي ليرنينج خاص، اختارها من «كليتك» تحت أو الصق رابطه.");
+      }
+      base = order[results.win]; j = results.out[results.win];
     }
-    session = { token: j.token, privatetoken: j.privatetoken || null, username: String(username).trim() };
+    session = { token: j.token, privatetoken: j.privatetoken || null, username, site: base };
     const info = await call("core_webservice_get_site_info");
     session.userid = info.userid;
     session.fullname = info.fullname;
     session.picture = info.userpictureurl;
+    session.sitename = info.sitename || "";
     if (info.username) session.username = info.username;
-    store.set("mdl.session", session);
+    store.set("mdl.session", session); store.set("mdl.site", base);
     return session;
   }
 
@@ -50,7 +97,7 @@ const Moodle = (() => {
     const body = flatten(params);
     body.append("wstoken", session.token);
     body.append("wsfunction", fn);
-    const r = await fetch(`${SITE}/webservice/rest/server.php?moodlewsrestformat=json&wsfunction=${fn}`, { method: "POST", body });
+    const r = await fetch(`${site()}/webservice/rest/server.php?moodlewsrestformat=json&wsfunction=${fn}`, { method: "POST", body });
     const j = await r.json();
     if (j && j.exception) {
       const e = new Error(j.message || j.errorcode);
@@ -65,7 +112,7 @@ const Moodle = (() => {
   // Add the token to Moodle file URLs so images/attachments load
   function fileUrl(url) {
     if (!url || !session) return url;
-    if (!url.startsWith(SITE)) return url;
+    if (!url.startsWith(new URL(site()).origin)) return url;
     let u = url.includes("/webservice/pluginfile.php") ? url : url.replace("/pluginfile.php", "/webservice/pluginfile.php");
     if (/[?&]token=/.test(u)) return u;
     if (u.includes("/webservice/pluginfile.php") || u.includes("/draftfile.php")) {
@@ -84,7 +131,8 @@ const Moodle = (() => {
   function rewriteHtml(html) {
     if (!html) return "";
     html = sanitize(html);
-    return html.replace(/(src|href)="(https:\/\/s1\.ebalqa\.courses\/[^"]*pluginfile\.php[^"]*)"/g, (m, a, u) => `${a}="${fileUrl(u.replace(/&amp;/g, "&"))}"`);
+    const host = new URL(site()).origin.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return html.replace(new RegExp(`(src|href)="(${host}\\/[^"]*pluginfile\\.php[^"]*)"`, "g"), (m, a, u) => `${a}="${fileUrl(u.replace(/&amp;/g, "&"))}"`);
   }
 
   async function courses() {
@@ -141,7 +189,7 @@ const Moodle = (() => {
       fd.append("filearea", "draft");
       fd.append("itemid", itemid);
       fd.append("file", f, f.name);
-      const r = await fetch(`${SITE}/webservice/upload.php`, { method: "POST", body: fd });
+      const r = await fetch(`${site()}/webservice/upload.php`, { method: "POST", body: fd });
       const j = await r.json();
       if (!Array.isArray(j) || !j[0] || !j[0].itemid) throw new Error((j && (j.error || j.message)) || "فشل رفع الملف");
       itemid = j[0].itemid;
@@ -183,6 +231,6 @@ const Moodle = (() => {
     return url;
   }
 
-  return { SITE, store, get session() { return session; }, login, logout, call, courses, assignments, quizzes,
+  return { get SITE() { return site(); }, SITES, normSite, store, get session() { return session; }, login, logout, call, courses, assignments, quizzes,
     submissionStatus, saveSubmission, submitForGrading, upcomingEvents, autologinUrl, fileUrl, rewriteHtml };
 })();
