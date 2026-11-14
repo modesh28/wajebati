@@ -38,6 +38,9 @@ async function signCode(user, exp) {
    replies are signed codes that only work for that student's own e-learning account. ---------- */
 const RELAY = "https://ntfy.sh/";
 const REQ_TOPIC = "wajebati-req-" + OWNER_PUBKEY.slice(8, 24).replace(/[^A-Za-z0-9]/g, "x");
+// a second topic only for the owner's phone notification (no names in it) — the owner subscribes to it in the ntfy app
+const PING_TOPIC = "wajebati-ping-" + OWNER_PUBKEY.slice(30, 48).replace(/[^A-Za-z0-9]/g, "x");
+const pingOwner = (text) => relayPost(PING_TOPIC, text, "?title=" + encodeURIComponent("واجباتي 📩") + "&tags=key&priority=high").catch(() => {});
 async function ansTopic(user) {
   const h = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode("wajebati-ans|" + String(user).trim().toLowerCase())));
   return "wajebati-ans-" + [...h.slice(0, 12)].map(b => b.toString(16).padStart(2, "0")).join("");
@@ -155,6 +158,7 @@ function viewActivate(kind) {
     rb.disabled = true; rb.textContent = "⏳ عم ببعت…";
     try {
       await relayPost(REQ_TOPIC, await sealForOwner({ user, name, site: Moodle.SITE.replace(/^https:\/\//, "") }), "?title=" + encodeURIComponent("📩 طلب تفعيل جديد — واجباتي") + "&tags=key&click=" + encodeURIComponent(location.origin + location.pathname + "#admin"));
+      pingOwner("في طالب بعتلك طلب تفعيل. افتح واجباتي ← الإعدادات ← تفعيل الطلاب ووافق عليه.");
       S.set("act.req", Date.now()); waiting(true);
     } catch {
       rb.disabled = false; rb.textContent = "📩 ابعت طلب تفعيل";
@@ -204,6 +208,14 @@ routes.admin = async () => {
     <h2 style="margin-top:0">📩 طلبات التفعيل</h2>
     <div class="field"><label>مدة التفعيل عند الموافقة</label><div class="seg" id="rd"><button data-d="30">شهر</button><button data-d="120" class="on">فصل</button><button data-d="365">سنة</button><button data-d="0">دايم</button></div></div>
     <div id="reqs"><div class="card small muted">⏳ بجيب الطلبات…</div></div>
+    <details class="card" id="pingcard" ${S.get("owner.ping") ? "" : "open"}><summary><b>🔔 خلّي الطلبات توصلك إشعار عتلفون</b> <span class="small muted">${S.get("owner.ping") ? "✓ مربوط" : "حتى لو التطبيق مسكّر"}</span></summary>
+      <ol class="small" style="line-height:2;padding-inline-start:20px;margin:10px 0">
+        <li>نزّل تطبيق <b>ntfy</b> المجاني: <a href="https://apps.apple.com/app/id1625396347" target="_blank" rel="noopener">آيفون</a> · <a href="https://play.google.com/store/apps/details?id=io.heckel.ntfy" target="_blank" rel="noopener">أندرويد</a></li>
+        <li>افتحه، اسمح بالإشعارات، واكبس <b>+</b> (Subscribe to topic)</li>
+        <li>الصق اسم القناة هاد واكبس Subscribe:</li></ol>
+      <div style="display:flex;gap:8px"><code dir="ltr" style="flex:1;padding:10px;border-radius:10px;background:var(--accent-soft);word-break:break-all;font-size:13px">${PING_TOPIC}</code><button class="btn" id="pcopy">📋 نسخ</button></div>
+      <button class="btn block" id="ptest" style="margin-top:8px">🔔 ابعت إشعار تجربة</button>
+      <p class="small muted" style="margin:8px 0 0">الإشعار بيحكيلك إنه في طلب بس، بدون اسم الطالب أو رقمه. التفاصيل والموافقة بتكون هون.</p></details>
     <h2>أو اعمل كود بإيدك</h2>
     <div class="card"><div class="field"><label>الرقم الجامعي للطالب</label><input class="input" id="ou" dir="ltr" inputmode="numeric" placeholder="32201003009"></div>
       <div class="field"><label>المدة</label><div class="seg" id="od"><button data-d="30">شهر</button><button data-d="120" class="on">فصل</button><button data-d="365">سنة</button><button data-d="0">دايم</button></div></div>
@@ -239,6 +251,8 @@ routes.admin = async () => {
       drawReqs();
     } catch { b.disabled = false; b.textContent = b.dataset.ok ? "✓ وافق" : "✕ رفض"; toast("ما زبط الإرسال، تأكد من النت"); }
   };
+  document.getElementById("pcopy").onclick = () => { navigator.clipboard && navigator.clipboard.writeText(PING_TOPIC).then(() => toast("✓ انسخ")).catch(() => {}); };
+  document.getElementById("ptest").onclick = async () => { await pingOwner("هاد إشعار تجربة ✓ الربط شغّال، أي طلب تفعيل جديد رح يوصلك هيك."); S.set("owner.ping", 1); toast("انبعت، لازم يوصلك عتلفون خلال ثواني"); };
   drawReqs();
   const riv = setInterval(() => { if (!document.getElementById("reqs")) return clearInterval(riv); drawReqs(); }, 15000);
   let days = 120;
