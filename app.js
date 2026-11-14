@@ -1280,7 +1280,7 @@ routes.settings = async () => {
       <button data-th="dark" class="${(S.get("theme", "auto")) === "dark" ? "on" : ""}">🌙 ليلي</button>
       <button data-th="auto" class="${(S.get("theme", "auto")) === "auto" ? "on" : ""}">📱 تلقائي</button></div></div>
 
-    ${localStorage.getItem("owner.key") ? `<button class="card planbtn" onclick="go('admin')"><span>🔑</span><div><b>تفعيل الطلاب</b><div class="small muted">اعمل أكواد تفعيل للناس اللي بدك توافق عليهم</div></div></button>` : ""}
+    ${window.isAppOwner && isAppOwner() ? `<button class="card planbtn" onclick="go('admin')"><span>🔑</span><div><b>تفعيل الطلاب</b><div class="small muted">اعمل أكواد تفعيل للناس اللي بدك توافق عليهم</div></div></button>` : ""}
     <h2>عن التطبيق</h2>
     <div class="card small muted">واجباتي · نسخة 1.0 · مربوط مباشرة مع s1.ebalqa.courses<br>
       <a href="#" onclick="event.preventDefault();pull&&pull();go('home')">تحديث البيانات</a></div>

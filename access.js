@@ -2,6 +2,17 @@
    Codes are signed with the owner's private key (kept only on the owner's phone) and bound to the student's
    university ID, so a code can't be shared or forged. */
 const OWNER_PUBKEY = "BEaGH_mWMIJbi-HrDsUAV3BBbSUFvQma1jq17DXkmNIY91gJr_nYhNziKEPy7cHKWQCFbQ9tVagmv00Mo8S3FhQ";
+// the owner's university ID always gets in; the code-making key is locked with the owner's password
+const OWNER_IDS = ["32201003009"];
+const OWNER_KEY_LOCKED = {"s":"TJSfOeQqfV6r0A0p1CtjDA","i":"flbiXLJa81u-Zc2P","c":"OAv81jyk9Jj-_Nrn4a2vhpbWnQrd1dw3UCrCvzO4eBBzRWgxHaIblrqVFqhDW4_dXX-4Zw2UZTw-Qet2nBc4jopv0AU-dl5BlauwI_g85HiM4vDFsXIDfyZJVR6EThix7Zia8JkAHohCWcjFTEw-ffsqq_pmmQQgnKegHy3bARQAP2yu55SJiaD7mDtDbkdUWsJKXGLtfVa6g1luyf27H_8MbWIJ-yDk_TPbUKxwKD9UFoqi9ZtxzwAIiMRnREAYUPLmR3Pxsi4"};
+const isOwnerId = () => OWNER_IDS.includes(String((Moodle.session && Moodle.session.username) || "").trim());
+async function unlockOwnerKey(pass) {
+  const d = s => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(s.length / 4) * 4, "=")), c => c.charCodeAt(0));
+  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(pass.trim().toLowerCase()), "PBKDF2", false, ["deriveKey"]);
+  const key = await crypto.subtle.deriveKey({ name: "PBKDF2", salt: d(OWNER_KEY_LOCKED.s), iterations: 600000, hash: "SHA-256" }, base, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+  const pk = new TextDecoder().decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: d(OWNER_KEY_LOCKED.i) }, key, d(OWNER_KEY_LOCKED.c)));
+  localStorage.setItem("owner.key", pk); return true;
+}
 const b64u = { dec: s => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(s.length / 4) * 4, "=")), c => c.charCodeAt(0)),
   enc: b => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") };
 const msgFor = (user, exp) => new TextEncoder().encode(`wajebati|${String(user).trim().toLowerCase()}|${exp}`);
@@ -22,6 +33,7 @@ async function signCode(user, exp) {
   return `${exp}.${b64u.enc(sig)}`;
 }
 const isOwner = () => !!localStorage.getItem("owner.key");
+window.isAppOwner = () => isOwner() || isOwnerId();
 const sessionUser = () => (Moodle.session && (Moodle.session.username || "")) || "";
 
 // called by the router: returns true if the app may open
@@ -35,7 +47,7 @@ function claimOwner() {
 window.accessGate = () => {
   if (claimOwner()) { route(); return false; }
   if (!Moodle.session) return true;
-  if (isOwner()) return true;
+  if (isOwner() || isOwnerId()) return true;
   const user = sessionUser(); if (!user) return true; // older session without the ID: checked after it's fetched
   const act = S.get("activation", null);
   if (accessOk === user) return true;
@@ -83,6 +95,18 @@ function viewActivate(kind) {
 
 /* ---------- owner panel: make activation codes ---------- */
 routes.admin = async () => {
+  if (!isOwner() && isOwnerId()) {
+    $app.innerHTML = `<div class="page enter" style="max-width:440px"><div class="top"><button class="back" onclick="history.back()">→ رجوع</button></div>
+      <div class="card" style="text-align:center"><div style="font-size:40px">🔑</div><b>كلمة سر المالك</b><p class="small muted">مرة وحدة بس على هاد الجهاز</p>
+      <input class="input" id="opw" dir="ltr" autocapitalize="off" autocomplete="off" style="text-align:center;font-size:20px;letter-spacing:3px;margin:8px 0"><div id="operr"></div>
+      <button class="btn primary block" id="opgo">فتح</button></div></div>`;
+    document.getElementById("opgo").onclick = async () => {
+      const b = document.getElementById("opgo"); b.disabled = true; b.textContent = "⏳…";
+      try { await unlockOwnerKey(document.getElementById("opw").value); buzz(); routes.admin(); }
+      catch { b.disabled = false; b.textContent = "فتح"; document.getElementById("operr").innerHTML = `<div class="err">كلمة السر غلط</div>`; }
+    };
+    return;
+  }
   if (!isOwner()) { $app.innerHTML = `<div class="page"><div class="empty">هاي الصفحة لصاحب التطبيق بس.</div></div>`; return; }
   const log = S.get("owner.log", []);
   $app.innerHTML = `<div class="page enter"><div class="top"><button class="back" onclick="history.back()">→ رجوع</button><span class="pill ok">👑 صاحب التطبيق</span></div>
