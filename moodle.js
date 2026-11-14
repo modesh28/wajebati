@@ -41,9 +41,9 @@ const Moodle = (() => {
     const body = new URLSearchParams({ username, password, service: "moodle_mobile_app" });
     let r;
     try { r = await fetch(`${base}/login/token.php`, { method: "POST", body, signal: AbortSignal.timeout ? AbortSignal.timeout(15000) : undefined }); }
-    catch { return { net: true }; }
+    catch { return { net: true }; }           // blocked by the site (no app access) or no internet
     const j = await r.json().catch(() => null);
-    if (!j) return { net: true };
+    if (!j) return { notmoodle: true, status: r.status }; // the address answered, but it isn't an e-learning login
     return j;
   }
   function loginError(j) {
@@ -58,7 +58,8 @@ const Moodle = (() => {
     let base = normSite(siteChoice), j;
     if (base) {
       j = await tokenFrom(base, username, password);
-      if (j.net) throw new Error(navigator.onLine === false ? "إنت مش متصل بالنت 📶" : "ما قدرت أوصل لهاد الرابط. تأكد إنه رابط الإي ليرنينج تبع كليتك، أو إنه موقعهم ما بيسمح بالاتصال من التطبيقات.");
+      if (j.notmoodle) throw new Error("هاد الرابط مش صفحة إي ليرنينج. افتح الإي ليرنينج تبعك من المتصفح، وانسخ الرابط من صفحة تسجيل الدخول كامل، واختار «كلية ثانية…» والصقه.");
+      if (j.net) throw new Error(navigator.onLine === false ? "إنت مش متصل بالنت 📶" : "موقع الإي ليرنينج تبع كليتك رافض يتصل بالتطبيق، أو النت ضعيف. جرّب كمان مرة.");
       if (!j.token) throw new Error(loginError(j));
     } else {
       // try the last used server first, then all known ones at the same time; keep the one that accepts the account
@@ -72,7 +73,7 @@ const Moodle = (() => {
       });
       if (results.win < 0) {
         const rs = results.out;
-        if (rs.every(r => r.net)) throw new Error(navigator.onLine === false ? "إنت مش متصل بالنت 📶" : "ما قدرت أوصل لموقع الجامعة، جرّب كمان شوي");
+        if (rs.every(r => r.net || r.notmoodle)) throw new Error(navigator.onLine === false ? "إنت مش متصل بالنت 📶" : "ما قدرت أوصل لموقع الجامعة، جرّب كمان شوي");
         const real = rs.find(r => !r.net && r.errorcode && r.errorcode !== "invalidlogin");
         if (real) throw new Error(loginError(real));
         throw new Error("الرقم الجامعي أو كلمة السر غلط. إذا كليتك إلها إي ليرنينج خاص، اختارها من «كليتك» تحت أو الصق رابطه.");
