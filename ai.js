@@ -124,7 +124,7 @@ const AI = (() => {
       // start the next one too and keep whichever answers first (the other is cancelled).
       const round = () => new Promise((resolve, reject) => {
         const bytes = sizeOf(), big = bytes > 1500000;
-        const HEDGE = big ? 25000 + bytes / 60 : depth === "deep" ? 8000 : 4500; // don't upload a big file twice at once
+        const HEDGE = big ? 25000 + bytes / 60 : depth === "deep" ? 12000 : 7000; // don't upload a big file twice at once
         const FIRST_BYTE = (depth === "deep" ? 45000 : 25000) + bytes / 40;      // ~40KB/s worst-case upload
         const queue = chain.filter(m => !(cool[m] > Date.now()));
         const retried = new Set();
@@ -140,7 +140,10 @@ const AI = (() => {
           else if (active === 0) finish(reject, new Error(lastErr && lastErr.message === "وصلت الحد" ? "المساعد مضغوط هلأ، جرّب كمان دقيقة."
             : lastErr && /النت/.test(lastErr.message) ? (navigator.onLine === false ? "إنت مش متصل بالنت 📶" : "النت ضعيف هلأ 📶 جرّب كمان مرة") : "ما زبط: " + (lastErr ? lastErr.message : "")));
         };
-        const scheduleHedge = () => { clearTimeout(hedgeTimer); hedgeTimer = setTimeout(() => { if (!winner && !done && queue.length) { onStatus && onStatus("slow"); start(); scheduleHedge(); } }, HEDGE); };
+        // only start a second model when the first one is really silent (no thinking, no words) —
+        // starting extra requests while it's thinking just burns the free quota and causes "limit reached" stalls
+        let alive = false;
+        const scheduleHedge = () => { clearTimeout(hedgeTimer); hedgeTimer = setTimeout(() => { if (!winner && !done && !alive && queue.length && active < 2) { onStatus && onStatus("slow"); start(); scheduleHedge(); } }, HEDGE); };
         async function start() {
           const model = queue.shift(); if (!model) return;
           active++;
@@ -186,7 +189,9 @@ const AI = (() => {
               const ps = ev.candidates && ev.candidates[0] && ev.candidates[0].content && ev.candidates[0].content.parts;
               if (!ps) return;
               for (const p of ps) {
-                if (p.thought) { bump(); if (!winner) onStatus && onStatus("thinking", model); continue; }
+                if (p.thought) { bump(); alive = true; clearTimeout(hedgeTimer);
+                  if (!winner) { const h = (p.text || "").match(/\*\*([^*\n]{3,80})\*\*/); onStatus && onStatus("thinking", model, h ? h[1] : ""); }
+                  continue; }
                 if (p.functionCall) { if (!claim()) return; bump(); calls.push(p.functionCall); parts.push(p); continue; }
                 if (!p.text) { if (p.thoughtSignature && winner === model) parts.push(p); continue; }
                 if (!claim()) return;

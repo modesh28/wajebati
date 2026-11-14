@@ -181,7 +181,7 @@ routes.code = async () => {
     try {
       const txt = await AI.chat({ system: "إنت مدرّب برمجة شاطر وصبور لطالب جامعي. " + AI.langRule() + " حط الكود دايماً داخل ```" + st.lang + ".", depth: "smart",
         messages: [{ role: "user", text: `${task}\n\nاللغة: ${CODE_LANGS[st.lang]}\nالكود:\n\`\`\`${st.lang}\n${ed.value}\n\`\`\`\n${out.innerText && !out.innerText.startsWith("//") ? "النتيجة/الخطأ لما شغّلته:\n" + out.innerText.slice(0, 3000) : ""}` }],
-        onText: t => w.text(t), onStatus: (k, m) => w.status(k, m) });
+        onText: t => w.text(t), onStatus: (k, m, x) => w.status(k, m, x) });
       box.firstChild.classList.add("msg", "ai"); enhance(box.firstChild);
       // "use this code" buttons on code blocks
       box.querySelectorAll("pre code").forEach(c => { const b = document.createElement("button"); b.className = "link usecode"; b.textContent = "⬆ حط هاد الكود بالمحرّر"; b.onclick = () => { ed.value = c.textContent; ed.dispatchEvent(new Event("input")); ed.scrollIntoView({ behavior: "smooth" }); buzz(); }; c.parentElement.after(b); });

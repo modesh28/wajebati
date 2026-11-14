@@ -82,7 +82,7 @@ ${outline}
 ${weak ? "نقاط ضعفي:\n" + weak : ""}
 اعملي خطة يوم بيوم من اليوم لحد يوم قبل الامتحان (آخر يوم مراجعة شاملة وكويز). وزّع الملفات بشكل منطقي، 2-4 مهام باليوم، مهام واضحة وقصيرة، واربط المهمة برقم الملف إذا في. رجّع JSON بس:
 {"days":[{"date":"YYYY-MM-DD","title":"عنوان قصير","tasks":[{"text":"المهمة","file_number":1}],"tip":"نصيحة قصيرة"}]}` }],
-        onStatus: (k, m) => w.status(k, m) });
+        onStatus: (k, m, x) => w.status(k, m, x) });
       w.stop();
       const plan = Study.parseJSON(txt);
       const all2 = exams(); all2[id] = { ...all2[id], plan, done: {} }; S.set("exams", all2);
@@ -136,7 +136,7 @@ routes.cquiz = async (id) => {
       const txt = await AI.chat({ system: "إنت أستاذ جامعي بيكتب امتحان نهائي. " + AI.langRule(), depth: "deep", json: true,
         messages: [{ role: "user", docs, text: `هاي ملفات مادة "${courseName(id)}":\n${texts.join("\n\n")}\n\nاكتب امتحان تجريبي من ${n} سؤال اختيار من متعدد، موزعة على كل الملفات، بمستوى الامتحان الجامعي (فهم وتطبيق مش بس حفظ)، ومع كل سؤال اسم الملف اللي جاي منه. رجّع JSON بس:
 {"questions":[{"q":"السؤال","options":["أ","ب","ج","د"],"answer":0,"why":"ليش","src":"اسم الملف"}]}` }],
-        onStatus: (k, m) => w.status(k, m) });
+        onStatus: (k, m, x) => w.status(k, m, x) });
       w.stop();
       const j = Study.parseJSON(txt);
       KV.set("cquiz:" + id, j);
@@ -199,7 +199,7 @@ routes.notes = async (id) => {
         const files = await courseFiles(id);
         const txt = await AI.chat({ system: "إنت مساعد دراسي ذكي. " + AI.langRule(), depth: "smart",
           messages: [{ role: "user", text: `هاي ملاحظاتي بمادة "${courseName(id)}" (بالترتيب اللي كتبتها فيه):\n${st.items.map(n => "- " + n.text).join("\n")}\n\nومحاضرات المادة:\n${files.map((f, i) => `${i + 1}. ${f.title}`).join("\n")}\n\nرتّب ملاحظاتي كملاحظات دراسة نظيفة: قسّمها بعناوين حسب المحاضرة/الموضوع، صحّح أي غلط علمي ووضّح التصحيح، كمّل النواقص المهمة بسطر، وبالآخر "⚠️ أشياء لازم أتأكد منها".` }],
-          onText: t => w.text(t), onStatus: (k, m) => w.status(k, m) });
+          onText: t => w.text(t), onStatus: (k, m, x) => w.status(k, m, x) });
         st.organized = txt; save(); draw();
       } catch (er) { w.stop(); box.innerHTML = `<div class="err">${esc(er.message)}</div>`; }
     };

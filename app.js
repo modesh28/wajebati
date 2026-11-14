@@ -900,8 +900,9 @@ function waiter(el) {
     el.innerHTML = `<div class="typing"><span class="dots"><i></i><i></i><i></i></span><span>${label}… <b>${sec}ث</b></span></div>`; };
   draw(); const iv = setInterval(draw, 1000);
   return {
-    status(kind, m) {
+    status(kind, m, idea) {
       if (m) model = m;
+      if (kind === "thinking" && idea) { label = "بفكّر: " + esc(idea); draw(); return; }
       if (kind === "tool") { label = m || "بشتغل"; model = ""; draw(); return; }
       label = kind === "thinking" ? "بفكّر بالجواب" : kind === "slow" ? "لحظة، بسرّعلك الجواب" : kind === "retry" ? "النت ضعيف، بعيد المحاولة" : kind === "read" ? "بقرأ الملف" : kind === "build" ? "ببني المحاكاة" : "بفكّر";
       draw();
@@ -920,19 +921,21 @@ function findCourse(q) {
     data.courses.find(c => norm(c.name).includes(n) || n.includes(norm(c.name))) ||
     data.courses.map(c => ({ c, score: n.split(" ").filter(w => w.length > 2 && norm(c.name).includes(w)).length })).sort((a, b) => b.score - a.score).filter(x => x.score)[0]?.c || null;
 }
+// instant: use what's already loaded, refresh in the background (a full e-learning refresh takes many seconds)
+async function quickData() { if (data) { if (Date.now() - (data.fetched || 0) > 5 * 60 * 1000) refresh().catch(() => {}); return data; } return refresh(); }
 function aiTools() {
   return [...(window.featureTools ? featureTools() : []), ...(window.featureTools2 ? featureTools2() : []),
     { name: "get_my_work", description: "Get the student's upcoming and recent assignments and quizzes from the e-learning, with due dates and whether each is already submitted.", label: () => "بشوف واجباتك…",
-      execute: async () => { await refresh(); return { now: new Date().toISOString(), items: upcoming().map(i => ({ type: i.kind, name: i.name, course: i.coursename, due: new Date(i.due * 1000).toISOString(), time_left: i.due > now() ? left(i.due - now()) : "passed", done: !!isDone(i) })) }; } },
+      execute: async () => { await quickData(); return { now: new Date().toISOString(), items: upcoming().map(i => ({ type: i.kind, name: i.name, course: i.coursename, due: new Date(i.due * 1000).toISOString(), time_left: i.due > now() ? left(i.due - now()) : "passed", done: !!isDone(i) })) }; } },
     { name: "list_courses", description: "List the student's courses this semester.", label: () => "بشوف موادك…",
-      execute: async () => { await refresh(); return { courses: data.courses.map(c => ({ id: c.id, name: c.name })) }; } },
+      execute: async () => { await quickData(); return { courses: data.courses.map(c => ({ id: c.id, name: c.name })) }; } },
     { name: "list_course_files", description: "List the lecture files (slides, PDFs) of a course, numbered in course order (1 = first lecture). Use before opening a file.", label: a => "بشوف ملفات المادة…",
       parameters: { type: "object", properties: { course: { type: "string", description: "Course name (any part, Arabic or English) or id" } }, required: ["course"] },
-      execute: async ({ course }) => { await refresh(); const c = findCourse(course); if (!c) return { error: "course not found", courses: data.courses.map(x => x.name) };
+      execute: async ({ course }) => { await quickData(); const c = findCourse(course); if (!c) return { error: "course not found", courses: data.courses.map(x => x.name) };
         const secs = await Study.courseContents(c.id); let n = 0; return { course: c.name, files: secs.flatMap(sec => sec.files.map(f => ({ number: ++n, section: sec.name, title: f.title, file: f.filename, type: Study.kindOf(f) }))) }; } },
     { name: "open_course_file", description: "Open and read a lecture file from a course so you can teach from it, quiz the student, or answer questions about it.", label: () => "بفتح الملف وبقرأه…",
       parameters: { type: "object", properties: { course: { type: "string" }, file_number: { type: "integer", description: "Number from list_course_files" } }, required: ["course", "file_number"] },
-      execute: async ({ course, file_number }) => { await refresh(); const c = findCourse(course); if (!c) return { error: "course not found" };
+      execute: async ({ course, file_number }) => { await quickData(); const c = findCourse(course); if (!c) return { error: "course not found" };
         const secs = await Study.courseContents(c.id); const all = secs.flatMap(sec => sec.files); const f = all[(+file_number || 1) - 1]; if (!f) return { error: "no such file", count: all.length };
         if (!Study.studyable(Study.kindOf(f))) return { error: "this file type can't be read", title: f.title };
         let d; try { d = await Study.load(f); } catch (e) { return { error: e.code === "fetch" ? "the university site blocked downloading this file; ask the student to open it from the course page and upload it" : e.message }; }
@@ -941,7 +944,7 @@ function aiTools() {
         return { title: f.title, content: d.data.slice(0, 60000) }; } },
     { name: "get_assignment", description: "Get full details of one assignment or quiz (description/questions, due date, submission status) by name.", label: () => "بفتح تفاصيل الواجب…",
       parameters: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
-      execute: async ({ name }) => { await refresh(); const n = norm(name); const it = data.items.find(i => norm(i.name) === n) || data.items.find(i => norm(i.name).includes(n) || n.includes(norm(i.name))); if (!it) return { error: "not found" };
+      execute: async ({ name }) => { await quickData(); const n = norm(name); const it = data.items.find(i => norm(i.name) === n) || data.items.find(i => norm(i.name).includes(n) || n.includes(norm(i.name))); if (!it) return { error: "not found" };
         const tmp = document.createElement("div"); tmp.innerHTML = it.intro || "";
         return { type: it.kind, name: it.name, course: it.coursename, due: it.due ? new Date(it.due * 1000).toISOString() : null, done: !!isDone(it), description: tmp.textContent.trim().slice(0, 6000) }; } },
     { name: "my_progress", description: "The student's learning memory: topics they got wrong in practice quizzes and how many review cards are due.", label: () => "بشوف تقدّمك…",
@@ -967,7 +970,7 @@ function aiContext() {
 احكي باللهجة الأردنية بشكل طبيعي وواضح، والمصطلحات التقنية والكود بالإنجليزي. خليك مختصر إلا إذا طلب تفصيل.
 الوقت هلأ: ${fmtDate.format(new Date())} (توقيت عمّان).
 مواده: ${courses}
-واجباته وكويزاته من الإي ليرنينج:
+واجباته وكويزاته من الإي ليرنينج (محدّثة، جاوب منها مباشرة بدون ما تستدعي get_my_work إلا إذا طلب تحديث):
 ${list}
 
 لما يفيد، استخدم رسومات: \`\`\`mermaid للمخططات (وكل نص جوّا الأشكال بين تنصيص مثل A[\"نص\"]) (خطوات، علاقات، هياكل بيانات، خطط دراسة شجرية)، و\`\`\`html لمحاكاة تفاعلية صغيرة (صفحة كاملة بدون مكتبات خارجية، RTL) لما المفهوم بينفهم بالتجربة (Stack, Queue, sorting…).
@@ -1093,11 +1096,12 @@ async function sendAI(voice) {
   const sendBtn = document.getElementById("send"); sendBtn.textContent = "■";
   try {
     // keep last 20 messages; only the last 2 user turns keep their images (saves cost)
-    const recent = chatMsgs.slice(-20).map((m, i, arr) => ({ ...m, text: (m.hidden || "") + (m.text || ""), images: i >= arr.length - 4 ? m.images : [], docs: i >= arr.length - 4 ? m.docs : [], audio: i >= arr.length - 2 ? m.audio : [] }));
+    const recent = chatMsgs.slice(-14).map((m, i, arr) => ({ ...m, text: (m.hidden || "") + (m.text || ""), images: i >= arr.length - 4 ? m.images : [], docs: i >= arr.length - 4 ? m.docs : [], audio: i >= arr.length - 2 ? m.audio : [] }));
     if (recent[0] && recent[0].role === "assistant") recent.shift();
-    const full = await AI.chat({ system: aiContext(), messages: recent, signal: aiAbort.signal, tools: aiTools(), depth: "smart",
+    const heavy = userMsg.images.length || userMsg.docs.length || textFiles || /```|اشرح|حل|حلل|برمج|كود|code|explain|solve|خطة|قارن|ليش|why|how/i.test(text) || text.length > 220;
+    const full = await AI.chat({ system: aiContext(), messages: recent, signal: aiAbort.signal, tools: aiTools(), depth: heavy ? "smart" : "fast",
 
-      onStatus: (k, m) => w.status(k, m),
+      onStatus: (k, m, x) => w.status(k, m, x),
       onText: t => { w.text(t); if (window.innerHeight + window.scrollY > document.body.scrollHeight - 200) window.scrollTo(0, document.body.scrollHeight); } });
     chatMsgs.push({ role: "assistant", text: full }); enhance(bubble); msgActions(bubble, full);
   } catch (e) {
@@ -1365,6 +1369,8 @@ document.addEventListener("visibilitychange", () => { if (document.visibilitySta
 
 // start once every script (features, rooms, approval…) is loaded
 document.addEventListener("DOMContentLoaded", () => route().then(syncSessionToSW));
+// warm up: find the free models list and open the connection to the AI early, so the first question isn't slow
+setTimeout(() => { try { const k = AI.settings().geminiKey; if (k) { AI.freeChain(k); fetch("https://generativelanguage.googleapis.com/", { mode: "no-cors" }).catch(() => {}); } } catch {} }, 1500);
 if (Moodle.session && !Moodle.session.username) Moodle.call("core_webservice_get_site_info").then(i => { if (i.username) { Moodle.session.username = i.username; S.set("mdl.session", Moodle.session); route(); } }).catch(() => {});
 
 document.getElementById("toast").addEventListener("click", e => e.currentTarget.hidden = true);
