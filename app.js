@@ -1281,6 +1281,7 @@ routes.settings = async () => {
       <button data-th="auto" class="${(S.get("theme", "auto")) === "auto" ? "on" : ""}">📱 تلقائي</button></div></div>
 
     ${window.isAppOwner && isAppOwner() ? `<button class="card planbtn" onclick="go('admin')"><span>🔑</span><div><b>تفعيل الطلاب</b><div class="small muted">اعمل أكواد تفعيل للناس اللي بدك توافق عليهم</div></div></button>` : ""}
+    <button class="card planbtn" onclick="go('qattempt-demo')"><span>🧪</span><div><b>جرّب كويز تجريبي</b><div class="small muted">كويز وهمي عشان تجرّب شاشة حل الكويزات (ما بينحسب)</div></div></button>
     <h2>عن التطبيق</h2>
     <div class="card small muted">واجباتي · نسخة 1.0 · مربوط مباشرة مع s1.ebalqa.courses<br>
       <a href="#" onclick="event.preventDefault();pull&&pull();go('home')">تحديث البيانات</a></div>

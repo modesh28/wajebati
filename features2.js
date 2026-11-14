@@ -237,17 +237,67 @@ OUTPUT:
 };
 
 /* ======================= take a quiz inside the app ======================= */
+/* ======================= demo quiz (try the quiz screen without a real one) ======================= */
+const demoQuiz = (() => {
+  const Q = [
+    { page: 0, type: "radio", text: "شو هو الـ Stack؟", opts: ["LIFO: آخر عنصر بيدخل أول عنصر بيطلع", "FIFO: أول عنصر بيدخل أول عنصر بيطلع", "شجرة ثنائية", "جدول Hash"], ok: "0" },
+    { page: 0, type: "radio", text: "Verification بتجاوب على سؤال: هل بنينا المنتج صح؟", opts: ["صح", "غلط"], ok: "0" },
+    { page: 0, type: "check", text: "أي من هدول هياكل بيانات خطّية؟ (اختار كل الإجابات الصحيحة)", opts: ["Array", "Linked List", "Tree", "Queue"], ok: ["0", "1", "3"] },
+    { page: 1, type: "text", text: "شو اسم العملية اللي بتشيل آخر عنصر من الـ Stack؟ (كلمة وحدة بالإنجليزي)", ok: "pop" },
+    { page: 1, type: "select", text: "وصّل كل مصطلح بمعناه:", rows: [["Inverted Index", 0], ["Stemming", 1], ["Stop words", 2]], choices: ["فهرس من الكلمة للملفات", "رجّع الكلمة لأصلها", "كلمات شائعة بنتجاهلها"] },
+    { page: 1, type: "text", text: "إذا عملنا push(5), push(8), pop() — شو العنصر اللي فوق هلأ؟ (رقم)", ok: "5" }
+  ];
+  let answers = {}, attempt = null, finished = false;
+  const nm = (i, k = "answer") => `q99:${i + 1}_${k}`;
+  const val = n => answers[n];
+  function html(i) {
+    const q = Q[i]; let inner = "";
+    if (q.type === "radio") inner = `<div class="answer">${q.opts.map((o, k) => `<div class="r${k}"><input type="radio" name="${nm(i)}" value="${k}" id="d${i}_${k}" ${val(nm(i)) === String(k) ? "checked" : ""}><label for="d${i}_${k}">${esc(o)}</label></div>`).join("")}</div>`;
+    if (q.type === "check") inner = `<div class="answer">${q.opts.map((o, k) => `<div class="r${k}"><input type="hidden" name="${nm(i, "choice" + k)}" value="0"><input type="checkbox" name="${nm(i, "choice" + k)}" value="1" id="d${i}_${k}" ${val(nm(i, "choice" + k)) === "1" ? "checked" : ""}><label for="d${i}_${k}">${esc(o)}</label></div>`).join("")}</div>`;
+    if (q.type === "text") inner = `<div class="ablock"><label>الجواب: <input type="text" name="${nm(i)}" value="${esc(val(nm(i)) || "")}" size="20"></label></div>`;
+    if (q.type === "select") inner = `<table class="answer">${q.rows.map(([t], r) => `<tr><td>${esc(t)}</td><td><select name="${nm(i, "sub" + r)}"><option value="">اختار…</option>${q.choices.map((c, k) => `<option value="${k}" ${val(nm(i, "sub" + r)) === String(k) ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></td></tr>`).join("")}</table>`;
+    return `<div class="que"><div class="content"><div class="formulation"><input type="hidden" name="q99:${i + 1}_:sequencecheck" value="1"><div class="qtext"><p>${esc(q.text)}</p></div>${inner}</div></div></div>`;
+  }
+  function right(i) {
+    const q = Q[i];
+    if (q.type === "radio") return val(nm(i)) === q.ok;
+    if (q.type === "check") return q.opts.every((_, k) => (val(nm(i, "choice" + k)) === "1") === q.ok.includes(String(k)));
+    if (q.type === "text") return String(val(nm(i)) || "").trim().toLowerCase() === q.ok;
+    if (q.type === "select") return q.rows.every(([, okk], r) => val(nm(i, "sub" + r)) === String(okk));
+  }
+  const merge = d => (d || []).forEach(x => { answers[x.name] = x.value; });
+  return {
+    reset() { answers = {}; attempt = null; finished = false; },
+    async call(fn, p) {
+      await new Promise(r => setTimeout(r, 250)); // feels like the real site
+      if (fn === "mod_quiz_get_user_attempts") return { attempts: attempt && !finished ? [attempt] : [] };
+      if (fn === "mod_quiz_start_attempt") { attempt = { id: "demo", timestart: Math.floor(Date.now() / 1000), currentpage: 0, state: "inprogress" }; return { attempt }; }
+      if (fn === "mod_quiz_get_attempt_data") { const pg = p.page || 0; return { questions: Q.map((q, i) => ({ q, i })).filter(x => x.q.page === pg).map(x => ({ number: x.i + 1, maxmark: "1.00", html: html(x.i) })), nextpage: pg < 1 ? pg + 1 : -1 }; }
+      if (fn === "mod_quiz_save_attempt") { merge(p.data); return { status: true }; }
+      if (fn === "mod_quiz_process_attempt") { merge(p.data); finished = true; return { state: "finished" }; }
+      if (fn === "mod_quiz_get_attempt_review") return { grade: `${Q.filter((_, i) => right(i)).length} من ${Q.length}` };
+      throw new Error("demo: " + fn);
+    },
+    reviewHtml() {
+      return `<div style="text-align:start;margin:14px 0">${Q.map((q, i) => `<div class="grow"><div dir="auto">${i + 1}. ${esc(q.text)}</div><b>${right(i) ? "✅" : "❌"}</b></div>`).join("")}</div>`;
+    }
+  };
+})();
+
 routes.qattempt = async (quizid) => {
-  await ensureData();
-  const q = data.items.find(i => i.kind === "quiz" && i.id == quizid);
+  const demo = quizid === "demo";
+  if (!demo) await ensureData();
+  const call = demo ? demoQuiz.call : (fn, params) => Moodle.call(fn, params);
+  if (demo) demoQuiz.reset();
+  const q = demo ? { name: "كويز تجريبي 🧪", coursename: "تجربة قبل الإطلاق", timelimit: 300, cmid: null } : data.items.find(i => i.kind === "quiz" && i.id == quizid);
   $app.innerHTML = `<div class="page enter">${skel(3)}</div>`;
   const fail = (msg) => { $app.innerHTML = `<div class="page"><div class="top"><button class="back" onclick="history.back()">→ رجوع</button></div><div class="err">${esc(msg)}</div>
-    ${q ? `<button class="btn primary" onclick="openMoodle('/mod/quiz/view.php?id=${q.cmid}')">افتح الكويز بالإي ليرنينج ↗</button>` : ""}</div>`; };
+    ${q && q.cmid ? `<button class="btn primary" onclick="openMoodle('/mod/quiz/view.php?id=${q.cmid}')">افتح الكويز بالإي ليرنينج ↗</button>` : ""}</div>`; };
   let attempt;
   try {
-    const un = await Moodle.call("mod_quiz_get_user_attempts", { quizid, status: "unfinished" });
+    const un = await call("mod_quiz_get_user_attempts", { quizid, status: "unfinished" });
     attempt = (un.attempts || [])[0];
-    if (!attempt) attempt = (await Moodle.call("mod_quiz_start_attempt", { quizid })).attempt;
+    if (!attempt) attempt = (await call("mod_quiz_start_attempt", { quizid })).attempt;
   } catch (e) { return fail(/password|preflight/i.test(e.message) ? "هاد الكويز بده كلمة سر، افتحه بالإي ليرنينج." : "ما قدرت أبلّش الكويز: " + e.message); }
   const limit = q && q.timelimit ? q.timelimit : 0, endAt = limit ? (attempt.timestart + limit) * 1000 : (q && q.due ? q.due * 1000 : 0);
   let page = attempt.currentpage || 0, total = null, timerIv = null, busy = false;
@@ -263,7 +313,7 @@ routes.qattempt = async (quizid) => {
   const answeredCount = () => { const names = new Set(); $app.querySelectorAll(".qform .que").forEach(qq => { const a = [...qq.querySelectorAll("input[type=radio]:checked, input[type=checkbox]:checked, input[type=text], select, textarea")].some(el => (el.type === "radio" || el.type === "checkbox") ? true : el.value.trim() && el.value !== "0" && el.value !== ""); if (a) names.add(qq); }); return names.size; };
   async function show(p) {
     busy = true;
-    let d; try { d = await Moodle.call("mod_quiz_get_attempt_data", { attemptid: attempt.id, page: p }); } catch (e) { busy = false; return fail("ما قدرت أجيب الأسئلة: " + e.message); }
+    let d; try { d = await call("mod_quiz_get_attempt_data", { attemptid: attempt.id, page: p }); } catch (e) { busy = false; return fail("ما قدرت أجيب الأسئلة: " + e.message); }
     page = p; busy = false;
     const qs = d.questions || [];
     $app.innerHTML = `<div class="page enter">
@@ -281,7 +331,7 @@ routes.qattempt = async (quizid) => {
     $app.querySelectorAll(".qhtml input[type=radio], .qhtml input[type=checkbox]").forEach(i => { const lab = i.closest("div,label"); lab && lab.classList.add("qopt"); });
     const unsupported = $app.querySelectorAll(".qhtml .ddarea, .qhtml .drags, .qhtml .ddmarker, .qhtml .ddwtos").length;
     if (unsupported) $app.querySelector(".qform").insertAdjacentHTML("afterbegin", `<div class="note">في سؤال سحب وإفلات ما بيشتغل هون. حلّه من الإي ليرنينج.</div>`);
-    const save = async (finish) => { const dataArr = collect(); return finish ? Moodle.call("mod_quiz_process_attempt", { attemptid: attempt.id, data: dataArr, finishattempt: 1, timeup: 0 }) : Moodle.call("mod_quiz_save_attempt", { attemptid: attempt.id, data: dataArr }); };
+    const save = async (finish) => { const dataArr = collect(); return finish ? call("mod_quiz_process_attempt", { attemptid: attempt.id, data: dataArr, finishattempt: 1, timeup: 0 }) : call("mod_quiz_save_attempt", { attemptid: attempt.id, data: dataArr }); };
     const nav = async (np) => { if (busy) return; busy = true; try { await save(false); } catch {} busy = false; show(np); };
     const prev = document.getElementById("qprev"); if (prev) prev.onclick = () => nav(p - 1);
     const next = document.getElementById("qnext"); if (next) next.onclick = () => nav(d.nextpage);
@@ -298,13 +348,13 @@ routes.qattempt = async (quizid) => {
     async function finish(timeup) {
       clearInterval(timerIv); $app.querySelector(".page").insertAdjacentHTML("beforeend", `<div class="card answer"></div>`); const w = waiter($app.querySelector(".card.answer")); w.status("tool", "بسلّم الكويز…");
       try {
-        await Moodle.call("mod_quiz_process_attempt", { attemptid: attempt.id, data: collect(), finishattempt: 1, timeup: timeup ? 1 : 0 });
+        await call("mod_quiz_process_attempt", { attemptid: attempt.id, data: collect(), finishattempt: 1, timeup: timeup ? 1 : 0 });
         w.stop(); let grade = "";
-        try { const r = await Moodle.call("mod_quiz_get_attempt_review", { attemptid: attempt.id }); if (r.grade !== undefined && r.grade !== null) grade = `${r.grade}`; } catch {}
+        try { const r = await call("mod_quiz_get_attempt_review", { attemptid: attempt.id }); if (r.grade !== undefined && r.grade !== null) grade = `${r.grade}`; } catch {}
         $app.innerHTML = `<div class="page enter"><div class="card" style="text-align:center"><div style="font-size:46px">✅</div><h2 style="color:var(--ink);font-size:20px;margin:6px 0">تم تسليم الكويز</h2>
           ${grade ? `<p style="font-size:18px">علامتك: <b>${esc(grade)}</b>${q && q.grade ? "" : ""}</p>` : `<p class="muted">العلامة بتطلع لما الدكتور يفتحها.</p>`}
-          <button class="btn primary" onclick="go('quiz-${quizid}')">رجوع للكويز</button></div></div>`;
-        buzz(); if (grade) confetti(); refresh(true).catch(() => {});
+          ${demo ? demoQuiz.reviewHtml() + `<div class="btns" style="justify-content:center"><button class="btn primary" onclick="routes.qattempt('demo')">↻ جرّب كمان مرة</button><button class="btn" onclick="go('home')">الرئيسية</button></div>` : `<button class="btn primary" onclick="go('quiz-${quizid}')">رجوع للكويز</button>`}</div></div>`;
+        buzz(); if (grade) confetti(); if (!demo) refresh(true).catch(() => {});
       } catch (e) { w.stop(); $app.querySelector(".card.answer").innerHTML = `<div class="err">ما زبط التسليم: ${esc(e.message)}</div>`; }
     }
   }
