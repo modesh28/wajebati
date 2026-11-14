@@ -743,6 +743,19 @@ function renderCards(el, cards, src) {
   draw();
 }
 
+// AI hint for practice questions: nudges you toward the answer without giving it away (asks again = a stronger hint)
+async function aiHint(question, options, box, btn) {
+  const lvl = (+btn.dataset.lvl || 0) + 1; btn.dataset.lvl = lvl; btn.disabled = true;
+  const w = waiter(box); box.classList.add("hintcard");
+  try {
+    const t = await AI.chat({ system: "إنت مدرّس بيعطي تلميحات ذكية. لهجة أردنية، المصطلحات التقنية بالإنجليزي. ممنوع تحكي الجواب أو رقمه أو حرفه أو تستبعد كل الخيارات الغلط.", depth: "fast",
+      messages: [{ role: "user", text: `السؤال: ${question}${options && options.length ? "\nالخيارات: " + options.join(" | ") : ""}\n\nاعطيني تلميح ${lvl === 1 ? "خفيف (جملة وحدة بتذكّرني بالفكرة)" : lvl === 2 ? "أقوى شوي (جملتين، مع مثال صغير)" : "قوي (بتستبعد خيار غلط واحد وبتشرح ليش)، بس بدون ما تحكي الجواب"}.` }],
+      onText: x => w.text("💡 " + x) });
+    w.text("💡 " + t);
+  } catch (e) { w.stop(); box.innerHTML = `<span class="small" style="color:var(--red)">${esc(e.message)}</span>`; }
+  btn.disabled = false; btn.textContent = lvl < 3 ? "💡 تلميح أقوى" : "💡 تلميح";
+  if (lvl >= 3) btn.remove();
+}
 function renderQuiz(el, qs, src, opts = {}) {
   if (!qs.length) { el.innerHTML = `<div class="err">ما طلعت أسئلة، جرّب مرة ثانية.</div>`; return; }
   let i = 0, score = 0;
@@ -758,8 +771,11 @@ function renderQuiz(el, qs, src, opts = {}) {
     }
     const q = qs[i];
     el.innerHTML = `<div class="card"><div class="small muted">سؤال ${i + 1} من ${qs.length}</div><div class="qtext" dir="auto">${esc(q.q)}</div>
-      <div class="opts">${q.options.map((o, j) => `<button class="opt" data-j="${j}" dir="auto">${esc(o)}</button>`).join("")}</div><div id="why"></div>
+      <div class="opts">${q.options.map((o, j) => `<button class="opt" data-j="${j}" dir="auto">${esc(o)}</button>`).join("")}</div>
+      ${AI.ready() ? `<button class="link hintbtn" id="hint">💡 تلميح</button><div id="hintbox"></div>` : ""}<div id="why"></div>
       <div class="progress"><div style="width:${(i / qs.length) * 100}%"></div></div></div>`;
+    const hb = document.getElementById("hint");
+    if (hb) hb.onclick = () => aiHint(q.q, q.options, document.getElementById("hintbox"), hb);
     el.querySelector(".opts").onclick = e => {
       const b = e.target.closest(".opt"); if (!b || el.querySelector(".opt.right")) return;
       const j = +b.dataset.j, ok = j === +q.answer; if (ok) score++; try { navigator.vibrate && navigator.vibrate(ok ? 15 : [30, 40, 30]); } catch {}

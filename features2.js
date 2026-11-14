@@ -320,7 +320,7 @@ routes.qattempt = async (quizid) => {
     $app.innerHTML = `<div class="page enter">
       <div class="top"><button class="back" id="qx">→ رجوع</button>${endAt ? `<span class="pill soon" id="qtime"></span>` : ""}</div>
       <div class="small muted" dir="auto">${esc(q ? q.coursename : "")}</div><h1 style="margin:0 0 12px;font-size:20px" dir="auto">${esc(q ? q.name : "كويز")}</h1>
-      <form class="qform" onsubmit="return false">${qs.map(x => `<div class="card qcard"><div class="small muted">سؤال ${x.number || ""}${x.maxmark ? ` · ${x.maxmark} علامة` : ""}</div><div class="qhtml">${Moodle.rewriteHtml(x.html)}</div></div>`).join("")}</form>
+      <form class="qform" onsubmit="return false">${qs.map(x => `<div class="card qcard"><div class="small muted">سؤال ${x.number || ""}${x.maxmark ? ` · ${x.maxmark} علامة` : ""}</div><div class="qhtml">${Moodle.rewriteHtml(x.html)}</div>${demo && AI.ready() ? `<button type="button" class="link hintbtn" data-hint="${x.number}">💡 تلميح</button><div class="hb"></div>` : ""}</div>`).join("")}</form>
       <div class="btns" style="justify-content:space-between">
         ${p > 0 ? `<button class="btn" id="qprev">→ السابق</button>` : "<span></span>"}
         ${d.nextpage !== -1 ? `<button class="btn primary" id="qnext">التالي ←</button>` : `<button class="btn primary" id="qfin">✓ سلّم الكويز</button>`}
@@ -329,6 +329,7 @@ routes.qattempt = async (quizid) => {
     // tidy Moodle's question markup
     $app.querySelectorAll(".qhtml .info, .qhtml .questionflag, .qhtml .im-controls, .qhtml script, .qhtml .accesshide.question_number").forEach(n => n.remove());
     $app.querySelectorAll(".qhtml p, .qhtml label, .qhtml .qtext, .qhtml li, .qhtml td").forEach(n => n.dir = "auto");
+    $app.querySelectorAll("[data-hint]").forEach(b => b.onclick = () => { const card = b.closest(".qcard"); const qt = card.querySelector(".qtext"); const opts = [...card.querySelectorAll(".answer label, .answer option")].map(o => o.textContent.trim()).filter(x => x && x !== "اختار…"); aiHint(qt ? qt.textContent : "", opts, b.nextElementSibling, b); });
     $app.querySelectorAll(".qhtml input[type=radio], .qhtml input[type=checkbox]").forEach(i => { const lab = i.closest("div,label"); lab && lab.classList.add("qopt"); });
     const unsupported = $app.querySelectorAll(".qhtml .ddarea, .qhtml .drags, .qhtml .ddmarker, .qhtml .ddwtos").length;
     if (unsupported) $app.querySelector(".qform").insertAdjacentHTML("afterbegin", `<div class="note">في سؤال سحب وإفلات ما بيشتغل هون. حلّه من الإي ليرنينج.</div>`);

@@ -447,3 +447,6 @@ body.no-tabs .rbar{bottom:calc(10px + var(--safe-b))}
 .quizpill b{font-variant-numeric:tabular-nums}
 .quizpill .qp-go{opacity:.9;white-space:nowrap}
 .quizpill.hurry{background:var(--red);color:#fff;animation:pulse 1s infinite}
+.hintbtn{display:inline-block;margin-top:10px}
+.hintcard{background:var(--amber-bg);color:var(--ink);border-radius:12px;padding:10px 14px;margin-top:8px;font-size:14px}
+.hintcard:empty{display:none}
