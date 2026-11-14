@@ -327,7 +327,17 @@ routes.qattempt = async (quizid) => {
       </div>
       <p class="small muted">إجاباتك بتنحفظ كل ما تنقل لصفحة ثانية.</p></div>`;
     // tidy Moodle's question markup
-    $app.querySelectorAll(".qhtml .info, .qhtml .questionflag, .qhtml .im-controls, .qhtml script, .qhtml .accesshide.question_number").forEach(n => n.remove());
+    $app.querySelectorAll(".qhtml .info, .qhtml .questionflag, .qhtml script, .qhtml .accesshide.question_number").forEach(n => n.remove());
+    // the university's own "Check" button (interactive quizzes): sends this answer to Moodle and shows the
+    // teacher's hint / feedback that Moodle returns — exactly like on the e-learning site
+    $app.querySelectorAll(".qhtml input[type=submit], .qhtml button[type=submit]").forEach(btn => {
+      btn.classList.add("btn", "qcheck");
+      btn.onclick = async ev => {
+        ev.preventDefault(); if (busy) return; busy = true; btn.disabled = true; btn.value = "⏳…";
+        try { await call("mod_quiz_process_attempt", { attemptid: attempt.id, data: [...collect(), { name: btn.name, value: btn.value || "1" }], finishattempt: 0, timeup: 0 }); } catch (e) { toast(e.message); }
+        busy = false; show(p);
+      };
+    });
     $app.querySelectorAll(".qhtml p, .qhtml label, .qhtml .qtext, .qhtml li, .qhtml td").forEach(n => n.dir = "auto");
     $app.querySelectorAll("[data-hint]").forEach(b => b.onclick = () => { const card = b.closest(".qcard"); const qt = card.querySelector(".qtext"); const opts = [...card.querySelectorAll(".answer label, .answer option")].map(o => o.textContent.trim()).filter(x => x && x !== "اختار…"); aiHint(qt ? qt.textContent : "", opts, b.nextElementSibling, b); });
     $app.querySelectorAll(".qhtml input[type=radio], .qhtml input[type=checkbox]").forEach(i => { const lab = i.closest("div,label"); lab && lab.classList.add("qopt"); });

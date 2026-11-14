@@ -450,3 +450,7 @@ body.no-tabs .rbar{bottom:calc(10px + var(--safe-b))}
 .hintbtn{display:inline-block;margin-top:10px}
 .hintcard{background:var(--amber-bg);color:var(--ink);border-radius:12px;padding:10px 14px;margin-top:8px;font-size:14px}
 .hintcard:empty{display:none}
+.qhtml .qcheck{margin-top:10px;width:auto}
+.qhtml .outcome,.qhtml .feedback{background:var(--amber-bg);border-radius:12px;padding:10px 14px;margin-top:10px;font-size:14px}
+.qhtml .hint,.qhtml .specificfeedback,.qhtml .generalfeedback,.qhtml .rightanswer{margin-top:6px}
+.qhtml .correct{color:var(--green)}.qhtml .incorrect{color:var(--red)}
