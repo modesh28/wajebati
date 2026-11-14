@@ -48,7 +48,7 @@ window.accessGate = () => {
 };
 
 function viewActivate(kind) {
-  $tabbar.hidden = true; document.body.classList.add("no-tabs");
+  $tabbar.hidden = true; document.body.classList.add("no-tabs"); setTimeout(() => { $tabbar.hidden = true; }, 50);
   const user = sessionUser(), name = (Moodle.session.fullname || "");
   $app.innerHTML = `<div class="login"><div class="page" style="max-width:440px">
     <img class="logo" src="icons/icon-192.png" alt="">
@@ -62,6 +62,17 @@ function viewActivate(kind) {
   document.getElementById("areq").onclick = () => shareOrCopy({ title: "طلب تفعيل واجباتي", text: `مرحبا 👋 بدي أفعّل تطبيق واجباتي.\nالاسم: ${name}\nالرقم الجامعي: ${user}` });
   document.getElementById("ago").onclick = async () => {
     const code = document.getElementById("acode").value.trim(); if (!code) return;
+    // the owner can paste their owner link (or key) here — needed on iPhone, where the home-screen app
+    // has its own storage separate from Safari
+    const ok = code.match(/(?:#owner-)?(MIG[A-Za-z0-9_-]{100,})/);
+    if (ok) {
+      try {
+        localStorage.setItem("owner.key", ok[1]);
+        const test = await signCode("selftest", 0);
+        if (!(await verifyCode("selftest", test))) throw 0;
+        accessOk = user; buzz(); confetti(); toast("👑 صرت صاحب التطبيق على هاد الجهاز"); location.hash = "home"; route(); return;
+      } catch { localStorage.removeItem("owner.key"); document.getElementById("aerr").innerHTML = `<div class="err">مفتاح المالك غلط.</div>`; return; }
+    }
     const r = await verifyCode(user, code);
     if (!r) { document.getElementById("aerr").innerHTML = `<div class="err">الكود غلط أو مش إلك. تأكد إنك نسخته كامل.</div>`; return; }
     if (r.exp !== 0 && r.exp < todayNum()) { document.getElementById("aerr").innerHTML = `<div class="err">هاد الكود منتهي.</div>`; return; }
