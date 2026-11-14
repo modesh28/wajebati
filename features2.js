@@ -285,6 +285,7 @@ const demoQuiz = (() => {
 })();
 
 routes.qattempt = async (quizid) => {
+  if (quizid === "demo" && !(window.isAppOwner && isAppOwner())) { location.hash = "home"; return; } // the demo quiz is for the owner only
   // already open? just show it again — nothing reloads, the timer never stopped
   if (window.activeQuiz && activeQuiz.id === quizid && document.getElementById("quizlayer")) { showQuizLayer(true); return; }
   closeQuizLayer();

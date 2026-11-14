@@ -455,3 +455,4 @@ body.no-tabs .rbar{bottom:calc(10px + var(--safe-b))}
 .qhtml .hint,.qhtml .specificfeedback,.qhtml .generalfeedback,.qhtml .rightanswer{margin-top:6px}
 .qhtml .correct{color:var(--green)}.qhtml .incorrect{color:var(--red)}
 .quiztab{color:var(--accent);font-variant-numeric:tabular-nums}.quiztab .ic{filter:none !important;opacity:1 !important}.quiztab.hurry{color:var(--red);animation:pulse 1s infinite}#quizlayer[hidden],#app[hidden]{display:none}
+.tabbar[hidden]{display:none!important}

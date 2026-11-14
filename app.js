@@ -179,7 +179,9 @@ function viewLogin() {
   $app.innerHTML = `<div class="login"><div class="page">
     <img class="logo" src="icons/icon-192.png" alt="">
     <h1 style="margin:0 0 4px">واجباتي</h1>
-    <p class="muted" style="margin:0 0 22px">سجّل دخول بنفس حساب الإي ليرنينج تبع جامعة البلقاء.</p>
+    <p class="muted" style="margin:0 0 14px">سجّل دخول بنفس حساب الإي ليرنينج تبع جامعة البلقاء.</p>
+    <div class="card" style="display:flex;gap:10px;align-items:center;margin-bottom:18px;border:1.5px solid var(--accent)"><div style="font-size:26px">🎁</div>
+      <div><b>أسبوع تجربة مجاناً</b><div class="small muted">بعدها <b>3 دنانير للفصل</b> أو <b>5 دنانير للسنة</b> · الدفع على CliQ</div></div></div>
     <div id="lerr"></div>
     <form id="lf">
       <div class="field"><label>الرقم الجامعي</label><input class="input" name="u" inputmode="numeric" autocomplete="username" required></div>
@@ -1310,7 +1312,7 @@ routes.settings = async () => {
       <button data-th="auto" class="${(S.get("theme", "auto")) === "auto" ? "on" : ""}">📱 تلقائي</button></div></div>
 
     ${window.isAppOwner && isAppOwner() ? `<button class="card planbtn" onclick="go('admin')"><span>🔑</span><div><b>تفعيل الطلاب <span class="pill" style="background:var(--red);color:#fff" id="reqbadge" hidden></span></b><div class="small muted">وافق على طلبات التفعيل اللي بتوصلك</div></div></button>` : ""}
-    <button class="card planbtn" onclick="go('qattempt-demo')"><span>🧪</span><div><b>جرّب كويز تجريبي</b><div class="small muted">كويز وهمي عشان تجرّب شاشة حل الكويزات (ما بينحسب)</div></div></button>
+    ${window.isAppOwner && isAppOwner() ? `<button class="card planbtn" onclick="go('qattempt-demo')"><span>🧪</span><div><b>جرّب كويز تجريبي</b><div class="small muted">كويز وهمي عشان تجرّب شاشة حل الكويزات (إلك بس)</div></div></button>` : ""}
     <h2>عن التطبيق</h2>
     <div class="card small muted">واجباتي · نسخة 1.0 · مربوط مباشرة مع ${esc((Moodle.session && Moodle.session.sitename) || "")} <span dir="ltr">${esc(Moodle.SITE.replace(/^https:\/\//, ""))}</span><br>
       <a href="#" onclick="event.preventDefault();pull&&pull();go('home')">تحديث البيانات</a></div>

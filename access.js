@@ -82,7 +82,7 @@ async function fetchRequests() {
     const prev = S.get("owner.log", []).filter(l => l.user.toLowerCase() === u && l.code && (l.exp === 0 || l.exp >= todayNum())).pop();
     if (prev) { done[m.id] = 1; ansTopic(u).then(t => relayPost(t, "OK." + prev.code)).catch(() => {}); continue; }
     for (const [k, v] of Object.entries(box)) if (v.user.toLowerCase() === u) delete box[k]; // keep only the newest request per student
-    box[m.id] = { user: r.user, name: r.name || "", site: r.site || "", t: m.time * 1000 };
+    box[m.id] = { user: r.user, name: r.name || "", site: r.site || "", plan: r.plan || 0, t: m.time * 1000 };
   }
   S.set("owner.reqs", box); S.set("owner.done", done);
   return box;
@@ -92,6 +92,19 @@ const isOwner = () => !!localStorage.getItem("owner.key");
 window.isAppOwner = () => isOwner() || isOwnerId();
 const sessionUser = () => (Moodle.session && (Moodle.session.username || "")) || "";
 
+// free trial: one week from the first time a student opens the app, then it needs a subscription
+const TRIAL_DAYS = 7;
+const PAY = { cliq: "MOD287", name: "Mohammad Amer Salem Alshwiki", semester: 3, year: 5 };
+function trialLeft(user) {
+  const u = String(user).toLowerCase(); if (!u) return 0;
+  let t = S.get("trial", null);
+  if (!t || t.user !== u) { t = { user: u, start: Date.now(), seen: Date.now() }; S.set("trial", t); }
+  // moving the phone's clock back doesn't bring the trial back
+  if (Date.now() < (t.seen || 0) - 36e5) return 0;
+  t.seen = Math.max(t.seen || 0, Date.now()); S.set("trial", t);
+  return Math.max(0, t.start + TRIAL_DAYS * 864e5 - Date.now());
+}
+const isActivated = (user) => { const a = S.get("activation", null); return !!(a && a.user === String(user).toLowerCase() && (a.exp === 0 || a.exp >= todayNum())); };
 // called by the router: returns true if the app may open
 let accessOk = null;
 function claimOwner() {
@@ -111,7 +124,9 @@ window.accessGate = () => {
     verifyCode(user, act.code).then(r => { if (r && (r.exp === 0 || r.exp >= todayNum())) accessOk = user; else { S.del("activation"); route(); } });
     return true;
   }
-  viewActivate(act && act.user === user.toLowerCase() ? "expired" : "new");
+  if (location.hash === "#subscribe") { viewActivate("trial"); return false; }
+  if (!(act && act.user === user.toLowerCase()) && trialLeft(user) > 0) return true; // still in the free week
+  viewActivate(act && act.user === user.toLowerCase() ? "expired" : "trialover");
   return false;
 };
 
@@ -120,13 +135,22 @@ function viewActivate(kind) {
   const user = sessionUser(), name = (Moodle.session.fullname || "");
   $app.innerHTML = `<div class="login"><div class="page" style="max-width:440px">
     <img class="logo" src="icons/icon-192.png" alt="">
-    <h1 style="margin:0 0 6px">${kind === "expired" ? "انتهى اشتراكك" : "التطبيق بده تفعيل"}</h1>
-    <p class="muted" style="margin:0 0 16px">${kind === "expired" ? "جدّد الاشتراك عشان ترجع تستخدم واجباتي." : "واجباتي خاص، وبيشتغل بعد ما صاحب التطبيق يوافق عليك."}</p>
+    <h1 style="margin:0 0 6px">${kind === "expired" ? "انتهى اشتراكك" : kind === "trial" ? "اشترك بواجباتي ✨" : kind === "trialover" ? "خلص أسبوع التجربة 🎁" : "التطبيق بده تفعيل"}</h1>
+    <p class="muted" style="margin:0 0 16px">${kind === "expired" ? "جدّد الاشتراك عشان ترجع تستخدم واجباتي." : kind === "trial" ? `باقيلك ${Math.ceil(trialLeft(user) / 864e5)} أيام من التجربة المجانية. اشترك هلأ عشان ما يوقف.` : kind === "trialover" ? "إن شاء الله عجبك! اشترك عشان تكمّل." : "واجباتي خاص، وبيشتغل بعد ما صاحب التطبيق يوافق عليك."}</p>
+    <div class="card"><b>💳 الاشتراك</b>
+      <div class="seg" id="aplan" style="margin:10px 0"><button data-d="120" class="on">فصل · ${PAY.semester} دنانير</button><button data-d="365">سنة · ${PAY.year} دنانير</button></div>
+      <div class="small muted">حوّل المبلغ على <b>CliQ</b>:</div>
+      <div style="display:flex;gap:8px;align-items:center;margin:6px 0"><code dir="ltr" style="flex:1;padding:10px;border-radius:10px;background:var(--accent-soft);font-size:18px;font-weight:700;text-align:center;letter-spacing:1px">${PAY.cliq}</code><button class="btn" id="acopy">📋 نسخ</button></div>
+      <div class="small" dir="ltr" style="text-align:center">${PAY.name}</div>
+      <div class="small muted" style="margin-top:8px">اكتب رقمك الجامعي بملاحظة التحويل، وبعدين اكبس «ابعت طلب تفعيل» تحت. أول ما يوصل المبلغ بيتفعّل عندك لحاله.</div></div>
     <div class="card"><div class="small muted">رقمك الجامعي</div><b dir="ltr" style="font-size:20px">${esc(user)}</b><div class="small muted">${esc(name)}</div>
       <button class="btn primary block" id="areq" style="margin-top:10px">📩 ابعت طلب تفعيل</button><div id="astate"></div></div>
     <div class="card"><div class="field"><label>وصلك كود التفعيل؟ الصقه هون</label><input class="input" id="acode" dir="ltr" placeholder="مثلاً 20270131.MEUCIQ…"></div>
       <div id="aerr"></div><button class="btn block" id="ago">✓ فعّل</button></div>
-    <button class="link" onclick="logout()">تسجيل خروج</button></div></div>`;
+    ${kind === "trial" ? `<button class="link" onclick="location.hash='home'">← رجوع للتطبيق</button>` : `<button class="link" onclick="logout()">تسجيل خروج</button>`}</div></div>`;
+  let plan = 120;
+  document.getElementById("aplan").onclick = e => { const b = e.target.closest("button"); if (!b) return; plan = +b.dataset.d; document.querySelectorAll("#aplan button").forEach(x => x.classList.toggle("on", x === b)); };
+  document.getElementById("acopy").onclick = () => { navigator.clipboard && navigator.clipboard.writeText(PAY.cliq).then(() => toast("✓ انسخ " + PAY.cliq)).catch(() => {}); };
   const st = document.getElementById("astate"), rb = document.getElementById("areq");
   const waiting = (sent) => { rb.textContent = "⏳ الطلب وصل، بنستنى الموافقة"; rb.disabled = true;
     st.innerHTML = `<div class="small muted" style="margin-top:8px">${sent ? "انبعت ✓ " : ""}أول ما صاحب التطبيق يوافق، رح يتفعّل عندك لحاله. خلّيك على هاي الصفحة أو ارجعلها بعدين.</div><button class="link small" id="ashare">أو ابعتله رسالة</button>`;
@@ -157,7 +181,7 @@ function viewActivate(kind) {
   rb.onclick = async () => {
     rb.disabled = true; rb.textContent = "⏳ عم ببعت…";
     try {
-      await relayPost(REQ_TOPIC, await sealForOwner({ user, name, site: Moodle.SITE.replace(/^https:\/\//, "") }), "?title=" + encodeURIComponent("📩 طلب تفعيل جديد — واجباتي") + "&tags=key&click=" + encodeURIComponent(location.origin + location.pathname + "#admin"));
+      await relayPost(REQ_TOPIC, await sealForOwner({ user, name, plan, site: Moodle.SITE.replace(/^https:\/\//, "") }), "?title=" + encodeURIComponent("📩 طلب تفعيل جديد — واجباتي") + "&tags=key&click=" + encodeURIComponent(location.origin + location.pathname + "#admin"));
       pingOwner("في طالب بعتلك طلب تفعيل. افتح واجباتي ← الإعدادات ← تفعيل الطلاب ووافق عليه.");
       S.set("act.req", Date.now()); waiting(true);
     } catch {
@@ -206,7 +230,7 @@ routes.admin = async () => {
   $app.innerHTML = `<div class="page enter"><div class="top"><button class="back" onclick="history.back()">→ رجوع</button><span class="pill ok">👑 صاحب التطبيق</span></div>
     <h1 style="margin:0 0 12px;font-size:22px">🔑 تفعيل الطلاب</h1>
     <h2 style="margin-top:0">📩 طلبات التفعيل</h2>
-    <div class="field"><label>مدة التفعيل عند الموافقة</label><div class="seg" id="rd"><button data-d="30">شهر</button><button data-d="120" class="on">فصل</button><button data-d="365">سنة</button><button data-d="0">دايم</button></div></div>
+    <div class="field"><label>المدة (إذا الطالب ما اختار)</label><div class="seg" id="rd"><button data-d="7">أسبوع</button><button data-d="30">شهر</button><button data-d="120" class="on">فصل</button><button data-d="365">سنة</button><button data-d="0">دايم</button></div></div>
     <div id="reqs"><div class="card small muted">⏳ بجيب الطلبات…</div></div>
     <details class="card" id="pingcard" ${S.get("owner.ping") ? "" : "open"}><summary><b>🔔 خلّي الطلبات توصلك إشعار عتلفون</b> <span class="small muted">${S.get("owner.ping") ? "✓ مربوط" : "حتى لو التطبيق مسكّر"}</span></summary>
       <ol class="small" style="line-height:2;padding-inline-start:20px;margin:10px 0">
@@ -218,7 +242,7 @@ routes.admin = async () => {
       <p class="small muted" style="margin:8px 0 0">الإشعار بيحكيلك إنه في طلب بس، بدون اسم الطالب أو رقمه. التفاصيل والموافقة بتكون هون.</p></details>
     <h2>أو اعمل كود بإيدك</h2>
     <div class="card"><div class="field"><label>الرقم الجامعي للطالب</label><input class="input" id="ou" dir="ltr" inputmode="numeric" placeholder="32201003009"></div>
-      <div class="field"><label>المدة</label><div class="seg" id="od"><button data-d="30">شهر</button><button data-d="120" class="on">فصل</button><button data-d="365">سنة</button><button data-d="0">دايم</button></div></div>
+      <div class="field"><label>المدة</label><div class="seg" id="od"><button data-d="7">أسبوع</button><button data-d="30">شهر</button><button data-d="120" class="on">فصل</button><button data-d="365">سنة</button><button data-d="0">دايم</button></div></div>
       <button class="btn primary block" id="ogo">اعمل كود</button><div id="oout"></div></div>
     ${log.length ? `<h2>آخر الأكواد</h2>${log.slice(-15).reverse().map(l => `<div class="card item" style="cursor:default"><div class="ic">🎟️</div><div class="body"><div class="title" dir="ltr">${esc(l.user)}</div><div class="due">${l.exp ? "لغاية " + String(l.exp).replace(/(\d{4})(\d{2})(\d{2})/, "$3/$2/$1") : "دايم"} · ${new Date(l.t).toLocaleDateString("ar-JO")}</div></div></div>`).join("")}` : ""}
     <p class="small muted">🔒 مفتاح المالك محفوظ على هاد الجهاز بس. لا تمسح بيانات المتصفح قبل ما تحفظ رابط المالك بمكان آمن.</p></div>`;
@@ -230,7 +254,7 @@ routes.admin = async () => {
     const box = await fetchRequests(); const list = Object.entries(box).sort((a, b) => b[1].t - a[1].t);
     if (!document.getElementById("reqs")) return;
     el.innerHTML = list.length ? list.map(([id, r]) => `<div class="card"><div style="display:flex;gap:10px;align-items:center"><div class="ic" style="font-size:26px">🎓</div>
-        <div style="flex:1;min-width:0"><b>${esc(r.name || "طالب")}</b><div class="small" dir="ltr" style="text-align:right">${esc(r.user)}</div>
+        <div style="flex:1;min-width:0"><b>${esc(r.name || "طالب")}</b><div class="small" dir="ltr" style="text-align:right">${esc(r.user)}</div>${r.plan ? `<div class="small"><span class="pill ok">بده: ${r.plan === 365 ? "سنة · " + PAY.year : "فصل · " + PAY.semester} دنانير</span></div>` : ""}
         <div class="small muted">${esc(r.site)} · ${new Date(r.t).toLocaleString("ar-JO", { hour: "numeric", minute: "2-digit", day: "numeric", month: "short" })}</div></div></div>
         <div style="display:flex;gap:8px;margin-top:10px"><button class="btn primary" style="flex:2" data-ok="${id}">✓ وافق</button><button class="btn" style="flex:1" data-no="${id}">✕ رفض</button></div></div>`).join("")
       : `<div class="card small muted">ما في طلبات جديدة. أول ما طالب يبعت طلب بيطلع هون.</div>`;
@@ -242,7 +266,7 @@ routes.admin = async () => {
     try {
       const topic = await ansTopic(r.user);
       if (b.dataset.ok) {
-        const exp = expFor(rdays), code = await signCode(r.user, exp);
+        const exp = expFor(r.plan || rdays), code = await signCode(r.user, exp);
         await relayPost(topic, "OK." + code);
         const l = S.get("owner.log", []); l.push({ user: r.user, name: r.name, exp, code, t: Date.now() }); S.set("owner.log", l.slice(-200));
         toast(`✓ تفعّل ${r.name || r.user}`); buzz();
@@ -275,3 +299,13 @@ routes.admin = async () => {
 setTimeout(async () => { try { if (!isOwner()) return; const n = await ownerPendingCount(); if (n) toast(`📩 عندك ${n} ${n === 1 ? "طلب تفعيل" : "طلبات تفعيل"} — من الإعدادات ← تفعيل الطلاب`); } catch {} }, 2500);
 // badge on the settings button
 (function () { const base = routes.settings; routes.settings = async (...a) => { await base(...a); if (window.isAppOwner && isAppOwner() && localStorage.getItem("owner.key")) ownerPendingCount().then(n => { const b = document.getElementById("reqbadge"); if (b && n) { b.hidden = false; b.textContent = n; } }).catch(() => {}); }; })();
+// during the free week: a small banner on the home screen
+(function () { const base = routes.home; routes.home = async (...a) => { await base(...a);
+  try { const u = sessionUser(); if (!u || isOwner() || isOwnerId() || isActivated(u)) return; const left = trialLeft(u); if (!left) return;
+    const d = Math.ceil(left / 864e5), el = document.createElement("div");
+    el.className = "card"; el.style.cssText = "display:flex;align-items:center;gap:10px;cursor:pointer;border:1.5px solid var(--accent)";
+    el.innerHTML = `<div style="font-size:26px">🎁</div><div style="flex:1"><b>تجربة مجانية · باقي ${d} ${d === 1 ? "يوم" : d === 2 ? "يومين" : "أيام"}</b><div class="small muted">اشترك بـ ${PAY.semester} دنانير للفصل أو ${PAY.year} للسنة</div></div><span class="pill ok">اشترك</span>`;
+    el.onclick = () => { location.hash = "subscribe"; };
+    const page = document.querySelector("#app .page"); if (page) page.insertBefore(el, page.children[1] || null);
+  } catch {} }; })();
+routes.subscribe = () => { location.hash = "home"; }; // already subscribed (or owner)
