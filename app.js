@@ -1309,7 +1309,7 @@ routes.settings = async () => {
       <button data-th="dark" class="${(S.get("theme", "auto")) === "dark" ? "on" : ""}">🌙 ليلي</button>
       <button data-th="auto" class="${(S.get("theme", "auto")) === "auto" ? "on" : ""}">📱 تلقائي</button></div></div>
 
-    ${window.isAppOwner && isAppOwner() ? `<button class="card planbtn" onclick="go('admin')"><span>🔑</span><div><b>تفعيل الطلاب</b><div class="small muted">اعمل أكواد تفعيل للناس اللي بدك توافق عليهم</div></div></button>` : ""}
+    ${window.isAppOwner && isAppOwner() ? `<button class="card planbtn" onclick="go('admin')"><span>🔑</span><div><b>تفعيل الطلاب <span class="pill" style="background:var(--red);color:#fff" id="reqbadge" hidden></span></b><div class="small muted">وافق على طلبات التفعيل اللي بتوصلك</div></div></button>` : ""}
     <button class="card planbtn" onclick="go('qattempt-demo')"><span>🧪</span><div><b>جرّب كويز تجريبي</b><div class="small muted">كويز وهمي عشان تجرّب شاشة حل الكويزات (ما بينحسب)</div></div></button>
     <h2>عن التطبيق</h2>
     <div class="card small muted">واجباتي · نسخة 1.0 · مربوط مباشرة مع ${esc((Moodle.session && Moodle.session.sitename) || "")} <span dir="ltr">${esc(Moodle.SITE.replace(/^https:\/\//, ""))}</span><br>
