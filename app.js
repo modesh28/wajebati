@@ -188,7 +188,7 @@ function viewLogin() {
         <option value="">🔎 لاقيها لحالك (مستحسن)</option>
         ${Moodle.SITES.map(x => `<option value="${x.url}">${esc(x.name)}</option>`).join("")}
         <option value="other">كلية ثانية… (بلصق رابط الإي ليرنينج)</option></select></div>
-      <div class="field" id="lother" hidden><label>رابط الإي ليرنينج تبع كليتك</label><input class="input" name="url" dir="ltr" inputmode="url" placeholder="s2.ebalqa.courses/nfetmoodle">
+      <div class="field" id="lother" hidden><label>رابط الإي ليرنينج تبع كليتك</label><input class="input" name="url" dir="ltr" inputmode="url" placeholder="s2.ebalqa.courses/fet">
         <div class="small muted" style="margin-top:4px">افتح الإي ليرنينج تبعك من المتصفح وانسخ الرابط من فوق، والصقه هون.</div></div>
       <button class="btn primary block" id="lb">تسجيل الدخول</button>
     </form>

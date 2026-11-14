@@ -5,7 +5,7 @@ const Moodle = (() => {
   const DEFAULT_SITE = "https://s1.ebalqa.courses";
   const SITES = [
     { url: "https://s1.ebalqa.courses", name: "جامعة البلقاء (الإي ليرنينج الرئيسي)" },
-    { url: "https://s2.ebalqa.courses/nfetmoodle", name: "كلية الهندسة التكنولوجية" },
+    { url: "https://s2.ebalqa.courses/fet", name: "كلية الهندسة التكنولوجية" },
     { url: "https://s1.ebalqa.courses/ncentermoodle", name: "منصة المركز (ncentermoodle)" }
   ];
   // turn whatever the student pasted (…/login/index.php, …/my/, no https) into the site's base address
